@@ -6,7 +6,7 @@ A production-grade, document-grounded Retrieval-Augmented Generation (RAG) syste
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
 * **Persistent SQLite Database (`data/rag_app.db`)**: Full WAL-mode database storing chat sessions, complete message histories, citations, chunk texts, and cognitive memory. Zero data is lost on reload or restarts.
 * **Multi-Session Chat Manager**: Create new chats, switch between past conversations, rename, and delete chat threads in the sidebar.
@@ -22,7 +22,7 @@ A production-grade, document-grounded Retrieval-Augmented Generation (RAG) syste
 
 ---
 
-## ⚙️ Quick Start & Setup
+## Quick Start & Setup
 
 ### 1. Clone & Navigate to Project
 ```bash
@@ -81,7 +81,7 @@ Open your browser at `http://localhost:8501`.
 
 ---
 
-## 🐳 Docker Deployment (One-Command)
+## Docker Deployment (One-Command)
 
 To run the entire stack in Docker with persistent database volumes:
 
@@ -98,7 +98,7 @@ docker compose down
 
 ---
 
-## 🧪 Running Automated Tests
+## Running Automated Tests
 
 Run the full automated test suite:
 ```bash
@@ -114,7 +114,7 @@ Test suite coverage:
 
 ---
 
-## 📊 RAGBench Benchmark Evaluation
+## RAGBench Benchmark Evaluation
 
 Evaluate retrieval and faithfulness against the official **RAGBench** benchmark:
 
@@ -124,7 +124,7 @@ python evaluation/eval_ragbench.py --subset covidqa --max_samples 10 --output_di
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 Vector_RAG/
@@ -175,6 +175,6 @@ Vector_RAG/
 
 :free models can be unavailable at any time, please check openrouter website for the current free models you can use for this project.
 
-## 🔒 License & Credits
+## License & Credits
 
 Built with [Streamlit](https://streamlit.io), [Pinecone](https://pinecone.io), [OpenRouter](https://openrouter.ai), and [Sentence-Transformers](https://sbert.net).
