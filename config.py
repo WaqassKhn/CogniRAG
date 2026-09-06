@@ -39,7 +39,7 @@ PINECONE_REGION = os.getenv("PINECONE_REGION", "us-east-1")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_SITE_URL = "https://github.com/WaqassKhn/Vector_RAG"
-OPENROUTER_APP_NAME = "RAG-NTPC"
+OPENROUTER_APP_NAME = "CogniRAG"
 
 # Task → model priority lists (index 0 = highest priority).
 # Live free models catalog as of August 2026:
