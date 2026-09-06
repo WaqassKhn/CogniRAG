@@ -6,6 +6,14 @@ A production-grade, document-grounded Retrieval-Augmented Generation (RAG) syste
 
 ---
 
+## 🏛️ End-to-End System Architecture
+
+<p align="center">
+  <img src="assets/highlevel.svg" alt="Grounded RAG Assistant End-to-End Architecture Flowchart" width="100%" />
+</p>
+
+---
+
 ## 🌟 Key Features
 
 * **Persistent SQLite Database (`data/rag_app.db`)**: Full WAL-mode database storing chat sessions, complete message histories, citations, chunk texts, and cognitive memory. Zero data is lost on reload or restarts.
