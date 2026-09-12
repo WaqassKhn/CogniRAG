@@ -1,4 +1,4 @@
-# 🧠 CogniRAG — Universal Enterprise Document Intelligence Assistant
+# CogniRAG — Universal Enterprise Document Intelligence Assistant
 
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
@@ -26,16 +26,16 @@ CogniRAG is a production-grade, document-grounded enterprise intelligence assist
 
 | Capability | Component | Status | Details |
 |---|---|:---:|---|
-| **Dense Vector Search** | Pinecone Serverless + MiniLM | ✅ Active | Cloud vector index with 384-dim embeddings computed locally at $0 cost |
-| **Sparse Keyword Search** | BM25 + Reciprocal Rank Fusion (RRF) | ✅ Active | Exact keyword, clause, and code matching fused with vector rankings |
-| **Knowledge Graph Traversal** | Neo4j 5 Community | ✅ Active | Multi-hop relational Cypher queries across policies, roles, departments, & metrics |
-| **Dual Ingestion Pipeline** | `DualIngestionPipeline` | ✅ Active | Parses, chunks, vectorizes, extracts entities/relations, and synchronizes deletion |
-| **Agentic Strategy Routing** | `QueryPlannerAgent` | ✅ Active | Dynamically routes queries to `graph_only`, `vector_only`, or `hybrid` strategies |
-| **Visual Graph Explorer** | PyVis + Streamlit | ✅ Active | Dark Minimal interactive canvas (`#080c0a`), color-coded nodes, physics simulation |
-| **Cognitive Memory Engine** | `CognitiveHub` | ✅ Active | 4-Tier memory: Working (buffer), Episodic (time-decayed), Semantic, Procedural |
-| **Hallucination Auditing** | `DocumentGroundingEvaluator` | ✅ Active | Token-level claim verification & numerical audits against chunks & graph context |
-| **Persistent Storage** | SQLite WAL Mode (`rag_app.db`) | ✅ Active | Full chat sessions, messages, citations, memory, and token quotas preserved |
-| **Zero-Block Resilience** | Graceful Degradation | ✅ Active | If Neo4j or Docker is offline, system seamlessly degrades to Vector + BM25 |
+| **Dense Vector Search** | Pinecone Serverless + MiniLM | 🟢 Active | Cloud vector index with 384-dim embeddings computed locally at $0 cost |
+| **Sparse Keyword Search** | BM25 + Reciprocal Rank Fusion (RRF) | 🟢 Active | Exact keyword, clause, and code matching fused with vector rankings |
+| **Knowledge Graph Traversal** | Neo4j 5 Community | 🟢 Active | Multi-hop relational Cypher queries across policies, roles, departments, & metrics |
+| **Dual Ingestion Pipeline** | `DualIngestionPipeline` | 🟢 Active | Parses, chunks, vectorizes, extracts entities/relations, and synchronizes deletion |
+| **Agentic Strategy Routing** | `QueryPlannerAgent` | 🟢 Active | Dynamically routes queries to `graph_only`, `vector_only`, or `hybrid` strategies |
+| **Visual Graph Explorer** | PyVis + Streamlit | 🟢 Active | Dark Minimal interactive canvas (`#080c0a`), color-coded nodes, physics simulation |
+| **Cognitive Memory Engine** | `CognitiveHub` | 🟢 Active | 4-Tier memory: Working (buffer), Episodic (time-decayed), Semantic, Procedural |
+| **Hallucination Auditing** | `DocumentGroundingEvaluator` | 🟢 Active | Token-level claim verification & numerical audits against chunks & graph context |
+| **Persistent Storage** | SQLite WAL Mode (`rag_app.db`) | 🟢 Active | Full chat sessions, messages, citations, memory, and token quotas preserved |
+| **Zero-Block Resilience** | Graceful Degradation | 🟢 Active | If Neo4j or Docker is offline, system seamlessly degrades to Vector + BM25 |
 
 ---
 
@@ -183,20 +183,20 @@ Open your browser at `http://localhost:8501`.
 
 ## User Interface Walkthrough
 
-1. **Chat Tab (`💬 Chat`)**:
+1. **Chat Tab (`Chat`)**:
    - Multi-session chat history persisted in SQLite WAL database.
    - Real-time token streaming with automatic fallback across OpenRouter `:free` models.
    - Dynamic strategy indicators: `[⚡ Graph-Only Strategy]`, `[🌿 Hybrid Dual Strategy]`, `[📄 Vector-Only Strategy]`.
    - Collapsible verification trays for document chunk citations and multi-hop knowledge graph relation paths.
    - Token-level grounding audits and numerical accuracy validation.
 
-2. **Documents Tab (`📁 Documents`)**:
+2. **Documents Tab (`Documents`)**:
    - Upload enterprise documents (PDF, DOCX, CSV, XLSX, TXT).
    - Dual-Ingestion Pipeline status: synchronizes chunk embeddings to Pinecone and subgraphs to Neo4j.
    - Live telemetry: Indexed Documents, Chunks, Entities, and Graph Relationships.
    - Synchronized atomic document deletion across both stores.
 
-3. **Graph Explorer Tab (`🕸️ Graph`)**:
+3. **Graph Explorer Tab (`Graph`)**:
    - Interactive PyVis network visualization with dark canvas (`#080c0a`).
    - Color-coded entity taxonomy:
      - 🟢 **`POLICY`**: Emerald (`#10b981`)
@@ -208,7 +208,7 @@ Open your browser at `http://localhost:8501`.
    - Interactive node count limit slider, entity type filter, and physics toggle.
    - Tabular inspector for nodes and relational edges with chunk provenance.
 
-4. **Settings Tab (`⚙️ Settings`)**:
+4. **Settings Tab (`Settings`)**:
    - Cognitive Memory Explorer (Working, Episodic, Semantic, Procedural).
    - Daily token budget quota meter and model latency telemetry.
 
