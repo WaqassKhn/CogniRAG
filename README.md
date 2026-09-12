@@ -61,29 +61,6 @@ CogniRAG is a production-grade, document-grounded enterprise intelligence assist
   <img src="assets/graph_flowchart_diagram.svg" alt="CogniRAG End-to-End System Flowchart & Graph Architecture" width="100%" />
 </p>
 
-```
-User Query ──► [QueryPlannerAgent] ──► Intent Strategy Classification
-                     │
-       ┌─────────────┼─────────────┐
-       ▼             ▼             ▼
-  [graph_only]    [hybrid]    [vector_only]
-       │             │             │
-       ├─────────────┼─────────────┘
-       ▼             ▼
- [GraphRetriever] [Pinecone + BM25]
- (Neo4j Multi-Hop) (Dense + Sparse RRF)
-       │             │
-       └──────┬──────┘
-              ▼
-       [Hybrid Context Fusion]
-              │
-              ▼
-   [OpenRouter :free LLM Router] ──► Token Stream ──► Streamlit UI
-              │
-              ▼
-   [Grounding & Numerical Auditor] (Validates claims against Chunks + Graph)
-```
-
 ---
 
 ## Required API Keys & Environment Variables
