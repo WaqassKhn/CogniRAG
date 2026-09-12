@@ -28,5 +28,9 @@ streamlit>=1.30.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 
+# Graph Database & Visualization
+neo4j>=5.20.0             # Neo4j Python Driver for GraphRAG
+pyvis>=0.3.2              # Interactive HTML network graph visualizer for Streamlit
+
 # Testing
 pytest>=7.4.0

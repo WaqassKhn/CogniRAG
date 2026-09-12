@@ -32,7 +32,7 @@ def test_pinecone_upsert_and_search(pinecone_db):
     test_chunks = [
         {
             "chunk_id": "test_doc.pdf_p1_c0",
-            "text": "NTPC generated 400 billion units of thermal and renewable electricity in fiscal year 2024.",
+            "text": "Enterprise Corp generated 400 billion units of thermal and renewable electricity in fiscal year 2024.",
             "filename": "test_doc.pdf",
             "page_number": 1,
             "has_table": False,
@@ -59,7 +59,7 @@ def test_pinecone_upsert_and_search(pinecone_db):
     time.sleep(2)  # Allow cloud index to reflect changes
 
     # Search with document filter
-    query_vec = emb_mgr.embed_query("How much electricity did NTPC generate?")
+    query_vec = emb_mgr.embed_query("How much electricity did the company generate?")
     results = pinecone_db.search(query_vec, top_k=2, filter_filenames=["test_doc.pdf"])
 
     assert len(results) > 0

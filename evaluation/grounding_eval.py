@@ -1,6 +1,6 @@
 import re
 import json
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from config import GROUNDING_PASS_THRESHOLD
 
 # Use OpenRouterLLM as primary judge; GeminiLLM as fallback if needed
@@ -67,12 +67,18 @@ Output ONLY valid JSON:"""
         self,
         query: str,
         answer: str,
-        retrieved_chunks: List[Dict[str, Any]]
+        retrieved_chunks: List[Dict[str, Any]],
+        graph_context: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Runs comprehensive grounding evaluation returning claim checks, numerical accuracy, and faithfulness scores.
+        Audits against both document chunks and verified knowledge graph relational facts.
         """
-        combined_context = "\n\n".join([f"[{c.get('filename','doc')} Page {c.get('page_number',1)}]\n{c.get('text','')}" for c in retrieved_chunks])
+        chunk_context = "\n\n".join([f"[{c.get('filename','doc')} Page {c.get('page_number',1)}]\n{c.get('text','')}" for c in retrieved_chunks])
+        if graph_context and graph_context.strip():
+            combined_context = f"{chunk_context}\n\n[VERIFIED KNOWLEDGE GRAPH RELATIONS]:\n{graph_context.strip()}"
+        else:
+            combined_context = chunk_context
         
         # 1. Numerical Accuracy Check
         num_check = self._audit_numerical_accuracy(answer, combined_context)

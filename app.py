@@ -54,6 +54,12 @@ from config import (
 from database.db_manager import DatabaseManager, get_db
 from pipeline.parser import DocumentParser
 from pipeline.chunker import DocumentChunker
+from pipeline.ingestion import DualIngestionPipeline
+from rag.graph.neo4j_client import Neo4jClient
+from rag.graph.extractor import GraphExtractor
+from rag.graph.retriever import GraphRetriever
+from rag.graph.visualizer import GraphVisualizer
+import streamlit.components.v1 as components
 from vectorstore.embeddings import EmbeddingManager
 from vectorstore.pinecone_db import PineconeDB
 from rag.openrouter_llm import OpenRouterLLM
@@ -701,6 +707,43 @@ def get_openrouter_llm():
 def get_reranker():
     return HybridReranker()
 
+@st.cache_resource
+def get_neo4j_client():
+    return Neo4jClient()
+
+@st.cache_resource
+def get_graph_extractor():
+    llm = get_openrouter_llm()
+    try:
+        gemini_llm = GeminiLLM()
+        if not gemini_llm.is_available():
+            gemini_llm = None
+    except Exception:
+        gemini_llm = None
+    return GraphExtractor(llm=llm, gemini_llm=gemini_llm)
+
+@st.cache_resource
+def get_graph_retriever():
+    client = get_neo4j_client()
+    return GraphRetriever(neo4j_client=client)
+
+@st.cache_resource
+def get_graph_visualizer():
+    return GraphVisualizer()
+
+@st.cache_resource
+def get_dual_ingestion_pipeline():
+    vdb = get_pinecone_db()
+    emb = get_embedding_manager()
+    client = get_neo4j_client()
+    extractor = get_graph_extractor()
+    return DualIngestionPipeline(
+        vector_db=vdb,
+        embedding_manager=emb,
+        neo4j_client=client,
+        graph_extractor=extractor,
+    )
+
 
 # ─── Session state init ───────────────────────────────────────────────────────
 
@@ -730,20 +773,10 @@ def init_session_state():
 
 # ─── Indexing helper ──────────────────────────────────────────────────────────
 
-def index_file(fpath: Path, vdb: PineconeDB, emb: EmbeddingManager) -> int:
-    """Parses, chunks, embeds, and upserts one file. Returns chunk count."""
-    parsed = DocumentParser.parse_file(str(fpath))
-    chunker = DocumentChunker(
-        chunk_size=DEFAULT_CHUNK_SIZE,
-        chunk_overlap=DEFAULT_CHUNK_OVERLAP,
-    )
-    chunks = chunker.chunk_parsed_document(parsed)
-    if not chunks:
-        return 0
-    texts = [c["text"] for c in chunks]
-    vecs = emb.embed_texts(texts)
-    vdb.upsert_chunks(chunks, vecs)
-    return len(chunks)
+def index_file(fpath: Path, progress_callback: Optional[Any] = None) -> dict:
+    """Parses, chunks, embeds, and upserts one file into Vector DB & Neo4j."""
+    pipeline = get_dual_ingestion_pipeline()
+    return pipeline.ingest_file(fpath, progress_callback=progress_callback)
 
 
 # ─── Sidebar (Left Dashboard) ────────────────────────────────────────────────
@@ -826,14 +859,20 @@ def render_sidebar():
 
         st.divider()
 
-        # 5. Bottom Navigation (Documents & Settings in 1 line like the stats box)
-        col_nav_doc, col_nav_set = st.columns(2)
+        # 5. Bottom Navigation (Docs, Graph, Settings in 1 row)
+        col_nav_doc, col_nav_graph, col_nav_set = st.columns(3)
         curr_nav = st.session_state.get("active_nav", "Chat")
 
         with col_nav_doc:
             doc_is_active = (curr_nav == "Documents")
-            if st.button("Documents", key="nav_docs_btn", icon=":material/description:", type="primary" if doc_is_active else "secondary"):
+            if st.button("Docs", key="nav_docs_btn", icon=":material/description:", type="primary" if doc_is_active else "secondary"):
                 st.session_state.active_nav = "Documents"
+                st.rerun()
+
+        with col_nav_graph:
+            graph_is_active = (curr_nav == "Graph")
+            if st.button("Graph", key="nav_graph_btn", icon=":material/hub:", type="primary" if graph_is_active else "secondary"):
+                st.session_state.active_nav = "Graph"
                 st.rerun()
 
         with col_nav_set:
@@ -851,6 +890,7 @@ def render_chat_tab():
     emb = get_embedding_manager()
     llm = get_openrouter_llm()
     reranker = get_reranker()
+    graph_retriever = get_graph_retriever()
     hub: CognitiveMemoryHub = st.session_state.cognitive_hub
     cache: SemanticAnswerCache = st.session_state.cache
     evaluator = DocumentGroundingEvaluator(llm=llm)
@@ -860,6 +900,7 @@ def render_chat_tab():
         embedding_manager=emb,
         llm=llm,
         reranker=reranker,
+        graph_retriever=graph_retriever,
     )
 
     known_docs = list(vdb.list_documents().keys())
@@ -981,6 +1022,7 @@ def render_chat_tab():
             reranked_chunks = []
             citations = []
             formatted_context = ""
+            graph_context = ""
 
             is_direct_plan = (
                 plan.get("strategy") == "direct"
@@ -1006,6 +1048,7 @@ def render_chat_tab():
                         citations = data["citations"]
                         reranked_chunks = data.get("reranked_chunks", reranked_chunks)
                         formatted_context = data.get("formatted_context", "")
+                        graph_context = data.get("graph_context", "")
 
                 answer = "".join(answer_parts)
                 answer_placeholder.markdown(answer)
@@ -1034,6 +1077,7 @@ def render_chat_tab():
                 reranked_chunks = merged["reranked_chunks"]
                 citations = merged["citations"]
                 formatted_context = merged.get("formatted_context", "")
+                graph_context = merged.get("graph_context", "")
                 st.markdown(answer)
 
                 if merged.get("sub_queries"):
@@ -1041,9 +1085,24 @@ def render_chat_tab():
                         for i, sq in enumerate(merged["sub_queries"], 1):
                             st.markdown(f"**Sub-query {i}:** {sq}")
 
+            # Strategy badge
+            strategy = plan.get("strategy", "hybrid")
+            if strategy == "graph_only":
+                strategy_badge = '<span class="badge-grounded" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">⚡ Graph-Only Strategy</span>'
+            elif strategy == "vector_only":
+                strategy_badge = '<span class="badge-grounded" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">📄 Vector-Only Strategy</span>'
+            else:
+                strategy_badge = '<span class="badge-grounded" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">🌿 Hybrid Dual Strategy</span>'
+            st.markdown(strategy_badge, unsafe_allow_html=True)
+
             # Citations
             if citations:
                 st.markdown("**Citations:** " + ", ".join([f"`{c}`" for c in citations]))
+
+            # Knowledge graph relations expander
+            if graph_context and graph_context.strip():
+                with st.expander("Knowledge graph relations"):
+                    st.markdown(graph_context)
 
             # Context chunks expander
             with st.expander("Retrieved context"):
@@ -1058,6 +1117,7 @@ def render_chat_tab():
                     query=query,
                     answer=answer,
                     retrieved_chunks=reranked_chunks,
+                    graph_context=graph_context,
                 )
             tracer.finish_span(eval_span, outputs={"grounding_score": eval_res["overall_grounding_score"], "passed": eval_res["is_passed"]})
 
@@ -1189,15 +1249,29 @@ def render_documents_tab():
         progress = st.progress(0, text="Starting indexing...")
         total_chunks = 0
         has_error = False
+        total_files = len(uploaded)
+
         for i, f in enumerate(uploaded):
             save_path = UPLOADS_DIR / f.name
             try:
                 with open(save_path, "wb") as w:
                     w.write(f.getbuffer())
-                progress.progress((i + 0.5) / len(uploaded), text=f"Parsing {f.name}...")
-                n = index_file(save_path, vdb, emb)
+
+                def make_cb(file_idx: int, file_total: int, file_name: str):
+                    def cb(stage_text: str, sub_pct: float):
+                        overall = (file_idx + sub_pct) / file_total
+                        progress.progress(
+                            min(max(overall, 0.0), 1.0),
+                            text=f"[{file_idx + 1}/{file_total}] {stage_text}",
+                        )
+                    return cb
+
+                file_cb = make_cb(i, total_files, f.name)
+                ingest_res = index_file(save_path, progress_callback=file_cb)
+                n = ingest_res.get("chunks", 0)
                 total_chunks += n
-                progress.progress((i + 1) / len(uploaded), text=f"Indexed {f.name}: {n} chunks")
+                graph_note = " + graph synced" if ingest_res.get("graph_synced") else ""
+                progress.progress((i + 1) / total_files, text=f"Indexed {f.name}: {n} chunks{graph_note}")
             except Exception as exc:
                 has_error = True
                 diag = ErrorDiagnosticManager.diagnose(exc, context=f"Uploading and Indexing Document `{f.name}`")
@@ -1213,31 +1287,154 @@ def render_documents_tab():
     st.divider()
 
     # Document registry
-    st.markdown("### Indexed documents")
     registry = vdb.list_documents()
 
     if not registry:
         st.info("No documents indexed yet. Upload files above to begin.")
         return
 
+    col_reg_hdr, col_sync_all = st.columns([0.65, 0.35])
+    with col_reg_hdr:
+        st.markdown("### Indexed documents")
+    with col_sync_all:
+        if st.button("⚡ Sync All to Graph", key="sync_all_graph_btn", use_container_width=True, help="Extract & sync knowledge graph entities for all uploaded documents into Neo4j"):
+            sync_progress = st.progress(0, text="Synchronizing knowledge graph...")
+            synced_count = 0
+            reg_list = list(registry.items())
+            total_reg = len(reg_list)
+            for idx, (fname, info) in enumerate(reg_list):
+                fpath = UPLOADS_DIR / fname
+                if fpath.exists():
+                    def make_sync_cb(file_idx: int, file_total: int, doc_name: str):
+                        def cb(stage_text: str, sub_pct: float):
+                            overall = (file_idx + sub_pct) / file_total
+                            sync_progress.progress(
+                                min(max(overall, 0.0), 1.0),
+                                text=f"[{file_idx + 1}/{file_total}] {doc_name}: {stage_text}",
+                            )
+                        return cb
+
+                    res = index_file(fpath, progress_callback=make_sync_cb(idx, total_reg, fname))
+                    synced_count += 1
+                    sync_progress.progress((idx + 1) / total_reg, text=f"Synced {fname} ({res.get('entities', 0)} entities, {res.get('relations', 0)} relations)")
+            sync_progress.empty()
+            st.success(f"Successfully synchronized {synced_count} documents to Knowledge Graph!")
+            st.rerun()
+
     stats = vdb.get_stats()
-    col1, col2, col3 = st.columns(3)
+    neo4j = get_neo4j_client()
+    gstats = neo4j.get_graph_statistics() if neo4j.is_available() else {"status": "disconnected"}
+
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Vectors", f"{stats['total_vector_count']:,}")
     col2.metric("Documents", stats.get("db_documents", len(registry)))
     col3.metric("Chunks", f"{stats.get('db_chunks', 0):,}")
+    col4.metric("Graph Entities", gstats.get("total_entities", 0) if gstats.get("status") == "connected" else "Offline")
+    col5.metric("Graph Relations", gstats.get("total_relationships", 0) if gstats.get("status") == "connected" else "Offline")
 
     st.markdown("")
 
     for filename, info in registry.items():
-        col_name, col_chunks, col_date, col_del = st.columns([4, 1.5, 2.5, 1])
+        col_name, col_chunks, col_date, col_sync, col_del = st.columns([3.4, 1.3, 2.3, 1.2, 0.8])
         col_name.markdown(f"`{filename}`")
         col_chunks.markdown(f"**{info['chunk_count']}** chunks")
         indexed_at = info.get("indexed_at", "Not available")[:10]
         col_date.caption(f"Indexed: {indexed_at}")
+
+        fpath = UPLOADS_DIR / filename
+        if col_sync.button("Sync Graph", key=f"sync_doc_{filename}", icon=":material/sync:", help=f"Extract & sync knowledge graph for {filename}", disabled=not fpath.exists()):
+            with st.spinner(f"Extracting graph entities for {filename}..."):
+                res = index_file(fpath)
+                st.success(f"Synced `{filename}`: {res.get('entities', 0)} entities, {res.get('relations', 0)} relations.")
+                st.rerun()
+
         if col_del.button("", key=f"del_doc_{filename}", icon=":material/delete:", help=f"Delete {filename}", type="secondary"):
-            deleted = vdb.delete_by_filename(filename)
-            st.success(f"Deleted {deleted} chunks for `{filename}`.")
+            pipeline = get_dual_ingestion_pipeline()
+            del_res = pipeline.delete_document(filename)
+            deleted = del_res.get("deleted_chunks", 0)
+            graph_note = " (and graph subgraph cleared)" if del_res.get("graph_deleted") else ""
+            st.success(f"Deleted {deleted} chunks for `{filename}`{graph_note}.")
             st.rerun()
+
+
+# ─── Tab 2b: Knowledge Graph Explorer ─────────────────────────────────────────
+
+def render_graph_explorer_tab():
+    st.markdown("## Knowledge Graph Explorer")
+    st.caption("Interactive multi-hop entity-relationship network visualizer powered by Neo4j and PyVis.")
+
+    neo4j = get_neo4j_client()
+    if not neo4j.is_available():
+        st.warning("Neo4j database is currently offline or unreachable. Start the container (`docker compose up -d neo4j`) to view the interactive graph.")
+        vis = get_graph_visualizer()
+        st.markdown(vis.render_empty_state_html("Neo4j is offline. Connect to Neo4j to explore the graph."), unsafe_allow_html=True)
+        return
+
+    # Top controls
+    col_filter, col_limit, col_physics, col_refresh = st.columns([3, 1.5, 1, 0.8])
+    with col_filter:
+        all_types = ["POLICY", "ROLE", "DEPARTMENT", "METRIC", "ORGANIZATION", "FISCAL_PERIOD"]
+        selected_types = st.multiselect(
+            "Filter entity types",
+            options=all_types,
+            default=all_types,
+            help="Select entity types to include in the visual canvas",
+        )
+    with col_limit:
+        limit = st.slider("Node limit", min_value=10, max_value=200, value=80, step=10)
+    with col_physics:
+        physics = st.checkbox("Physics simulation", value=True, help="Enable dynamic repulsion/gravity physics")
+    with col_refresh:
+        st.write("")
+        st.write("")
+        if st.button("", key="refresh_graph_btn", icon=":material/refresh:", help="Refresh graph data"):
+            st.rerun()
+
+    # Query graph data
+    with st.spinner("Traversing Knowledge Graph..."):
+        graph_data = neo4j.get_entire_graph(
+            limit=limit,
+            entity_types=selected_types if len(selected_types) < len(all_types) else None,
+        )
+
+    nodes = graph_data.get("nodes", [])
+    edges = graph_data.get("edges", [])
+
+    # Stats banner
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Visible Nodes", len(nodes))
+    c2.metric("Visible Edges", len(edges))
+    density = f"{(2 * len(edges)) / (len(nodes) * (len(nodes) - 1)):.3f}" if len(nodes) > 1 else "0.000"
+    c3.metric("Graph Density", density)
+    c4.metric("Engine", "Neo4j 5 Community")
+
+    st.markdown("")
+
+    # Visualizer Canvas
+    vis = get_graph_visualizer()
+    html_content = vis.generate_network_html(nodes=nodes, edges=edges, physics=physics)
+    components.html(html_content, height=640, scrolling=False)
+
+    # Data Inspector below graph
+    st.divider()
+    st.markdown("### Entity & Relationship Registry")
+    tab_nodes, tab_edges = st.tabs(["Nodes (Entities)", "Edges (Relationships)"])
+
+    with tab_nodes:
+        if nodes:
+            import pandas as pd
+            df_nodes = pd.DataFrame(nodes)
+            st.dataframe(df_nodes, use_container_width=True, hide_index=True)
+        else:
+            st.info("No nodes matching the selected filter.")
+
+    with tab_edges:
+        if edges:
+            import pandas as pd
+            df_edges = pd.DataFrame(edges)
+            st.dataframe(df_edges, use_container_width=True, hide_index=True)
+        else:
+            st.info("No relationships matching the selected filter.")
 
 
 # ─── Tab 3: Settings & Cognitive Memory Explorer ──────────────────────────────
@@ -1324,7 +1521,7 @@ def render_settings_tab():
 
             st.markdown("##### Add domain fact")
             col_s, col_p, col_o = st.columns(3)
-            subj = col_s.text_input("Subject", placeholder="NTPC", key="fact_s")
+            subj = col_s.text_input("Subject", placeholder="Acme Corp", key="fact_s")
             pred = col_p.text_input("Predicate", placeholder="commercial_capacity", key="fact_p")
             obj = col_o.text_input("Object", placeholder="76 GW", key="fact_o")
             if st.button("Add Fact") and subj and pred and obj:
@@ -1388,6 +1585,29 @@ def render_settings_tab():
 
         st.divider()
 
+        st.markdown("### Knowledge Graph (Neo4j)")
+        neo4j = get_neo4j_client()
+        if neo4j.is_available():
+            gstats = neo4j.get_graph_statistics()
+            st.markdown(
+                f'<div class="model-line"><span class="status-dot status-live"></span>'
+                f'<strong>Neo4j Engine</strong>: <code>Connected ({neo4j.uri})</code></div>',
+                unsafe_allow_html=True,
+            )
+            cg1, cg2, cg3 = st.columns(3)
+            cg1.metric("Entities", gstats.get("total_entities", 0))
+            cg2.metric("Relations", gstats.get("total_relationships", 0))
+            cg3.metric("Graph Docs", gstats.get("total_documents", 0))
+        else:
+            st.markdown(
+                '<div class="model-line"><span class="status-dot status-down"></span>'
+                '<strong>Neo4j Engine</strong>: <code>Offline / Graceful Vector Fallback Active</code></div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("Neo4j is currently unreachable. RAG operations will operate on Pinecone vector + BM25 search seamlessly.")
+
+        st.divider()
+
         st.markdown("### Database and memory")
         col_c1, col_c2 = st.columns(2)
         if col_c1.button("Clear answer cache", key="clear_cache_btn"):
@@ -1423,6 +1643,8 @@ def main():
     # Render view based on active navigation
     if active_nav == "Documents":
         render_documents_tab()
+    elif active_nav == "Graph":
+        render_graph_explorer_tab()
     elif active_nav == "Settings":
         render_settings_tab()
     else:

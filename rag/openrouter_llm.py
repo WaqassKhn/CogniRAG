@@ -16,10 +16,10 @@ Task types:
 
 Usage:
     llm = OpenRouterLLM()
-    text = llm.generate("What is NTPC's revenue?", task="answer")
+    text = llm.generate("What is the annual revenue?", task="answer")
+    print(text)
 
-    # Streaming (for Streamlit st.write_stream):
-    for chunk in llm.generate_stream("What is NTPC's revenue?", task="answer"):
+    for chunk in llm.generate_stream("What is the annual revenue?", task="answer"):
         print(chunk, end="", flush=True)
 """
 
@@ -231,8 +231,16 @@ class OpenRouterLLM:
         messages = self._build_messages(prompt, system_instruction)
         priority_list = OPENROUTER_MODELS.get(task, OPENROUTER_MODELS["answer"])
 
+        # Filter using live free models if known
+        if self._live_free_models:
+            candidate_models = [m for m in priority_list if m in self._live_free_models]
+            if not candidate_models:
+                candidate_models = priority_list
+        else:
+            candidate_models = priority_list
+
         tried: list[str] = []
-        for model_id in priority_list:
+        for model_id in candidate_models:
             tried.append(model_id)
             try:
                 logger.debug(f"[OpenRouterLLM] task={task} → trying model: {model_id}")
@@ -244,8 +252,19 @@ class OpenRouterLLM:
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
                 if status == 429:
+                    err_body = ""
+                    try:
+                        err_body = exc.response.text
+                    except Exception:
+                        pass
+                    if "free-models-per-day" in err_body or "daily" in err_body.lower():
+                        logger.warning(
+                            f"[OpenRouterLLM] OpenRouter daily free quota reached on {model_id}. "
+                            f"Short-circuiting directly to Gemini fallback."
+                        )
+                        break
                     logger.warning(f"[OpenRouterLLM] 429 rate limit on {model_id}, trying next...")
-                    time.sleep(2)
+                    time.sleep(1)
                     continue
                 elif status in (402, 403):
                     logger.warning(f"[OpenRouterLLM] {status} on {model_id} (quota/billing), trying next...")
@@ -284,7 +303,14 @@ class OpenRouterLLM:
         messages = self._build_messages(prompt, system_instruction)
         priority_list = OPENROUTER_MODELS.get(task, OPENROUTER_MODELS["answer"])
 
-        for model_id in priority_list:
+        if self._live_free_models:
+            candidate_models = [m for m in priority_list if m in self._live_free_models]
+            if not candidate_models:
+                candidate_models = priority_list
+        else:
+            candidate_models = priority_list
+
+        for model_id in candidate_models:
             try:
                 logger.debug(f"[OpenRouterLLM] stream task={task} → trying: {model_id}")
                 payload = {
@@ -301,8 +327,19 @@ class OpenRouterLLM:
                         json=payload,
                     ) as resp:
                         if resp.status_code == 429:
+                            err_body = ""
+                            try:
+                                err_body = resp.read().decode("utf-8", errors="ignore")
+                            except Exception:
+                                pass
+                            if "free-models-per-day" in err_body or "daily" in err_body.lower():
+                                logger.warning(
+                                    f"[OpenRouterLLM] stream daily free quota reached on {model_id}. "
+                                    f"Short-circuiting directly to Gemini fallback."
+                                )
+                                break
                             logger.warning(f"[OpenRouterLLM] stream 429 on {model_id}, trying next...")
-                            time.sleep(2)
+                            time.sleep(1)
                             continue
                         if resp.status_code in (402, 403, 500, 502, 503):
                             logger.warning(f"[OpenRouterLLM] stream {resp.status_code} on {model_id}, trying next...")

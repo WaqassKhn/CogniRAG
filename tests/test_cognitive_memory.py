@@ -68,7 +68,7 @@ def test_semantic_memory_preferences_and_facts(temp_db: DatabaseManager):
 
     # 2. Add Fact
     fid = semantic.add_fact(
-        subject="NTPC Green Energy",
+        subject="Acme Green Energy",
         predicate="target_capacity_2032",
         object_="60 GW",
         source="Investor Presentation",
@@ -78,11 +78,11 @@ def test_semantic_memory_preferences_and_facts(temp_db: DatabaseManager):
     # 3. Search Fact
     matched = semantic.search_facts("What is the green energy target?")
     assert len(matched) >= 1
-    assert matched[0]["subject"] == "NTPC Green Energy"
+    assert matched[0]["subject"] == "Acme Green Energy"
 
     # 4. Extraction heuristic
     extracted = semantic.extract_and_update(
-        user_msg="Please always use INR Crores for currency. Remember that Coal PLF was 77%.",
+        user_msg="Please always use USD Millions for currency. Remember that Cloud SLA was 99.9%.",
     )
     assert "currency" in extracted["preferences"] or semantic.get_preference("currency") is not None
     assert len(extracted["facts"]) >= 1
@@ -112,13 +112,13 @@ def test_procedural_memory_recipes(temp_db: DatabaseManager):
 
     # 4. Custom recipe registration
     procedural.register_recipe(
-        name="coal_supply_audit",
-        trigger_patterns=["coal supply", "rake movement", "linkage coal"],
-        steps=["1. Check ACQ compliance.", "2. Extract domestic vs imported blend ratio."],
+        name="vendor_supply_audit",
+        trigger_patterns=["vendor supply", "delivery SLA", "procurement contract"],
+        steps=["1. Check SLA compliance.", "2. Extract domestic vs international delivery ratio."],
     )
-    custom_match = procedural.match_recipe("Review the linkage coal and rake movement stats")
+    custom_match = procedural.match_recipe("Review the vendor supply and delivery SLA stats")
     assert custom_match is not None
-    assert custom_match["name"] == "coal_supply_audit"
+    assert custom_match["name"] == "vendor_supply_audit"
 
 
 def test_cognitive_memory_hub_coordination(temp_db: DatabaseManager):
@@ -127,8 +127,8 @@ def test_cognitive_memory_hub_coordination(temp_db: DatabaseManager):
     # 1. Post interaction update
     q_vec = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     hub.post_interaction_update(
-        query="What is NTPC's total capacity?",
-        answer="NTPC's total capacity is 76 GW.",
+        query="What is the company's total capacity?",
+        answer="The total capacity is 76 GW.",
         citations=["annual_report.pdf (Page 5)"],
         query_embedding=q_vec,
         session_id="test-session-1",

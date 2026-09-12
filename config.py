@@ -31,7 +31,7 @@ EMBEDDING_DIMENSION = 384  # MiniLM-L6-v2 output dimension — must match Pineco
 
 # ─── Pinecone — Primary Vector Database ─────────────────────────────────────
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "rag-ntpc")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "cognirag")
 PINECONE_CLOUD = os.getenv("PINECONE_CLOUD", "aws")
 PINECONE_REGION = os.getenv("PINECONE_REGION", "us-east-1")
 
@@ -50,26 +50,19 @@ OPENROUTER_APP_NAME = "CogniRAG"
 OPENROUTER_MODELS: dict[str, list[str]] = {
     "answer": [                              # Main answer generation — deep reasoning & factual accuracy
         "openrouter/free",
-        "minimax/minimax-m3:free",
-        "minimax/minimax-m2.7:free",
         "google/gemma-4-31b-it:free",
         "google/gemma-4-26b-a4b-it:free",
-        "inclusionai/ling-3.0-flash-fin:free",
-        "z-ai/glm-5.2:free",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
         "nvidia/nemotron-3.5-lightning:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "inclusionai/ling-3.0-flash-fin:free",
         "thinkingmachines/inkling:free",
         "liquid/lfm-2.5-2.6b:free",
         "poolside/laguna-s-2.1:free",
     ],
     "decompose": [                           # Query planning — speed & structure
         "openrouter/free",
-        "minimax/minimax-m2.7:free",
-        "inclusionai/ling-3.0-flash-fin:free",
-        "minimax/minimax-m3:free",
         "google/gemma-4-26b-a4b-it:free",
+        "inclusionai/ling-3.0-flash-fin:free",
         "cohere/north-mini-code:free",
         "thinkingmachines/inkling-small:free",
         "liquid/lfm-2.5-2.6b:free",
@@ -77,16 +70,14 @@ OPENROUTER_MODELS: dict[str, list[str]] = {
     ],
     "judge": [                               # LLM-as-judge grounding evaluation
         "openrouter/free",
-        "minimax/minimax-m3:free",
-        "minimax/minimax-m2.7:free",
         "google/gemma-4-31b-it:free",
-        "z-ai/glm-5.2:free",
         "nvidia/nemotron-3.5-content-safety:free",
         "inclusionai/ling-3.0-flash-fin:free",
+        "liquid/lfm-2.5-2.6b:free",
     ],
     "compress": [                            # Memory summarisation — fast & concise
         "openrouter/free",
-        "minimax/minimax-m2.7:free",
+        "google/gemma-4-26b-a4b-it:free",
         "inclusionai/ling-3.0-flash-fin:free",
         "liquid/lfm-2.5-2.6b:free",
         "thinkingmachines/inkling-small:free",
@@ -94,7 +85,7 @@ OPENROUTER_MODELS: dict[str, list[str]] = {
     ],
     "triage": [                              # Document scope selection
         "openrouter/free",
-        "minimax/minimax-m2.7:free",
+        "google/gemma-4-26b-a4b-it:free",
         "inclusionai/ling-3.0-flash-fin:free",
         "cohere/north-mini-code:free",
         "liquid/lfm-2.5-2.6b:free",
@@ -134,4 +125,16 @@ EPISODIC_TIME_DECAY_LAMBDA = 0.01       # Exponential decay constant per hour (~
 EPISODIC_SIMILARITY_THRESHOLD = 0.65    # Minimum cosine similarity for episodic recall
 MAX_EPISODIC_RECORDS = 500              # Maximum episodes stored
 MAX_SEMANTIC_FACTS = 1000               # Maximum domain facts stored
+
+# ─── Neo4j & GraphRAG Settings ───────────────────────────────────────────────
+ENABLE_GRAPHRAG = os.getenv("ENABLE_GRAPHRAG", "true").lower() in ("true", "1", "yes")
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password123")
+NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
+NEO4J_MAX_CONNECTION_POOL_SIZE = int(os.getenv("NEO4J_MAX_CONNECTION_POOL_SIZE", "20"))
+GRAPHRAG_MAX_HOPS = int(os.getenv("GRAPHRAG_MAX_HOPS", "2"))
+GRAPHRAG_EXTRACTION_MODE = os.getenv("GRAPHRAG_EXTRACTION_MODE", "hybrid_fast")  # hybrid_fast | local_rules | hybrid | llm_all
+GRAPHRAG_SUBGRAPH_TOP_K = int(os.getenv("GRAPHRAG_SUBGRAPH_TOP_K", "10"))
+
 

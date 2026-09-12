@@ -11,6 +11,7 @@ Two execution modes:
   run_stream() — yields (type, data) tuples for token-by-token streaming in UI
 """
 
+import logging
 import re
 import time
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
@@ -18,6 +19,8 @@ from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 from config import INITIAL_TOP_K, RERANKED_TOP_K
 from vectorstore.embeddings import EmbeddingManager
 from rag.reranker import HybridReranker
+
+logger = logging.getLogger(__name__)
 
 # Accept either VectorDatabase (eval) or PineconeDB (production) via duck-typing
 try:
@@ -38,23 +41,24 @@ except ImportError:
 
 class RAGChain:
     """
-    End-to-End RAG Chain implementing:
+    End-to-End Hybrid RAG Chain implementing:
     1. Query embedding
     2. Vector similarity retrieval (Pinecone or FAISS)
     3. Sparse/BM25 Hybrid Reranking via RRF
-    4. Grounded Prompt Formulation with context chunks
-    5. LLM Answer Generation (OpenRouter or Gemini)
+    4. Knowledge Graph Multi-Hop Subgraph Traversal (Neo4j)
+    5. Unified Grounded Prompt Formulation (Vectors + Triples)
+    6. LLM Answer Generation (OpenRouter or Gemini)
     """
 
-    SYSTEM_PROMPT = """You are a strict, grounded AI assistant specialized in analyzing financial, corporate, and technical documents.
+    SYSTEM_PROMPT = """You are a strict, grounded AI assistant specialized in analyzing enterprise corporate documents, policies, operational reports, and multi-hop relationships.
 
-Your core instruction: Answer the user's question using ONLY the provided context chunks below.
+Your core instruction: Answer the user's question using ONLY the provided document context chunks and knowledge graph relations below.
 
 Rules:
-1. Accuracy & Grounding: Every statement and numerical figure in your response MUST be directly supported by the context chunks.
-2. Numerical Precision: Quote exact figures, percentages, dates, and currency values as they appear in the source chunks. Do NOT round, estimate, or extrapolate figures unless explicitly requested.
-3. Citations: Cite your sources inline using the format [Source: <Filename>, Page <PageNumber>] for every key claim or figure.
-4. Missing Information: If the provided context chunks do not contain enough information to answer the question, explicitly state: "The provided document context does not contain sufficient information to answer this question." Do NOT use outside knowledge.
+1. Accuracy & Grounding: Every statement and numerical figure in your response MUST be directly supported by the context chunks or knowledge graph relations.
+2. Numerical Precision: Quote exact figures, percentages, dates, and currency values as they appear in the source context. Do NOT round, estimate, or extrapolate figures unless explicitly requested.
+3. Citations: Cite your sources inline using the format [Source: <Filename>, Page <PageNumber>] or [Knowledge Graph] for every key claim or figure.
+4. Missing Information: If the provided context does not contain enough information to answer the question, explicitly state: "The provided document context does not contain sufficient information to answer this question." Do NOT use outside knowledge.
 """
 
     def __init__(
@@ -63,11 +67,13 @@ Rules:
         embedding_manager: EmbeddingManager,
         llm,                                # OpenRouterLLM or GeminiLLM (duck-typed)
         reranker: Optional[HybridReranker] = None,
+        graph_retriever: Optional[Any] = None,
     ):
         self.vector_db = vector_db
         self.embedding_manager = embedding_manager
         self.llm = llm
         self.reranker = reranker or HybridReranker()
+        self.graph_retriever = graph_retriever
 
     # ─── Full (non-streaming) run ─────────────────────────────────────────────
 
@@ -116,8 +122,27 @@ Rules:
         if tracer and rerank_span:
             tracer.finish_span(rerank_span, outputs={"top_chunks_selected": len(top_chunks)})
 
+        # Step 3b: Knowledge Graph Subgraph Traversal
+        graph_facts = ""
+        graph_evidence_chunks = []
+        if self.graph_retriever and getattr(self.graph_retriever, "is_available", lambda: False)():
+            graph_span = tracer.start_span("graph_retrieval", component="graph", inputs={"query": query}) if tracer else None
+            try:
+                graph_facts, graph_evidence_chunks = self.graph_retriever.retrieve_facts(query)
+                if tracer and graph_span:
+                    tracer.finish_span(graph_span, outputs={"facts_retrieved": bool(graph_facts), "evidence_count": len(graph_evidence_chunks)})
+            except Exception as exc:
+                if tracer and graph_span:
+                    tracer.finish_span(graph_span, outputs={"error": str(exc)})
+                logger.warning(f"[RAGChain] Graph retrieval notice: {exc}")
+
         # Step 4: Build grounded prompt
-        user_prompt, formatted_context = self._build_prompt(query, top_chunks, memory_context)
+        user_prompt, formatted_context = self._build_prompt(
+            query=query,
+            top_chunks=top_chunks,
+            memory_context=memory_context,
+            graph_context=graph_facts,
+        )
 
         # Step 5: Generate answer
         llm_span = tracer.start_span("llm_generation", component="llm", inputs={"task": "answer", "chunks_count": len(top_chunks)}) if tracer else None
@@ -126,6 +151,8 @@ Rules:
             tracer.finish_span(llm_span, outputs={"answer_length": len(answer)}, metadata={"model": getattr(self.llm, "last_model_used", "openrouter")})
 
         citations = self._extract_citations(top_chunks)
+        if graph_facts and "[Knowledge Graph]" not in citations:
+            citations.append("[Knowledge Graph]")
 
         return {
             "query": query,
@@ -134,6 +161,7 @@ Rules:
             "reranked_chunks": top_chunks,
             "citations": citations,
             "formatted_context": formatted_context,
+            "graph_context": graph_facts,
         }
 
     # ─── Streaming run ────────────────────────────────────────────────────────
@@ -185,11 +213,32 @@ Rules:
         if tracer and rerank_span:
             tracer.finish_span(rerank_span, outputs={"top_chunks_selected": len(top_chunks)})
 
+        # Step 3b: Knowledge Graph Subgraph Traversal
+        graph_facts = ""
+        graph_evidence_chunks = []
+        if self.graph_retriever and getattr(self.graph_retriever, "is_available", lambda: False)():
+            graph_span = tracer.start_span("graph_retrieval", component="graph", inputs={"query": query}) if tracer else None
+            try:
+                graph_facts, graph_evidence_chunks = self.graph_retriever.retrieve_facts(query)
+                if tracer and graph_span:
+                    tracer.finish_span(graph_span, outputs={"facts_retrieved": bool(graph_facts), "evidence_count": len(graph_evidence_chunks)})
+            except Exception as exc:
+                if tracer and graph_span:
+                    tracer.finish_span(graph_span, outputs={"error": str(exc)})
+                logger.warning(f"[RAGChain] Graph retrieval notice: {exc}")
+
         # Emit context immediately so UI can show retrieved chunks while LLM generates
         yield ("context", top_chunks)
 
-        user_prompt, formatted_context = self._build_prompt(query, top_chunks, memory_context)
+        user_prompt, formatted_context = self._build_prompt(
+            query=query,
+            top_chunks=top_chunks,
+            memory_context=memory_context,
+            graph_context=graph_facts,
+        )
         citations = self._extract_citations(top_chunks)
+        if graph_facts and "[Knowledge Graph]" not in citations:
+            citations.append("[Knowledge Graph]")
 
         # Stream tokens from LLM
         llm_span = tracer.start_span("llm_stream", component="llm", inputs={"task": "answer", "chunks_count": len(top_chunks)}) if tracer else None
@@ -224,6 +273,7 @@ Rules:
                 "reranked_chunks": top_chunks,
                 "retrieved_chunks": [c for c, s in dense_results],
                 "formatted_context": formatted_context,
+                "graph_context": graph_facts,
             },
         )
 
@@ -251,8 +301,9 @@ Rules:
         query: str,
         top_chunks: List[Dict],
         memory_context: Optional[str],
+        graph_context: Optional[str] = None,
     ) -> Tuple[str, str]:
-        """Constructs the grounded user prompt with optional conversation memory."""
+        """Constructs the grounded user prompt with optional conversation memory and knowledge graph context."""
         context_blocks = []
         for idx, chunk in enumerate(top_chunks):
             citation_tag = f"Source: {chunk['filename']}, Page {chunk['page_number']}"
@@ -265,11 +316,16 @@ Rules:
         if memory_context and memory_context.strip():
             memory_section = f"CONVERSATION HISTORY & USER PREFERENCES:\n{memory_context.strip()}\n\n"
 
+        graph_section = ""
+        if graph_context and graph_context.strip():
+            graph_section = f"KNOWLEDGE GRAPH CONTEXT (MULTI-HOP RELATIONS & GOVERNANCE):\n{graph_context.strip()}\n\n"
+
         prompt = (
             f"{memory_section}"
+            f"{graph_section}"
             f"DOCUMENT CONTEXT:\n{formatted_context}\n\n"
             f"QUESTION:\n{query}\n\n"
-            f"ANSWER (strictly grounded in the document context above, quoting exact figures and citing sources):"
+            f"ANSWER (strictly grounded in the document and knowledge graph context above, quoting exact figures and citing sources):"
         )
         return prompt, formatted_context
 

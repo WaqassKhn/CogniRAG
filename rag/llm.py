@@ -1,7 +1,11 @@
 import os
 import time
+import logging
 from typing import Optional
 from config import DEFAULT_GEMINI_MODEL, GEMINI_API_KEY
+
+# Suppress google_genai internal advisory regarding Chat vs Models AFC recommendation
+logging.getLogger("google_genai.models").setLevel(logging.ERROR)
 
 try:
     from google import genai
