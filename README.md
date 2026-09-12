@@ -57,6 +57,10 @@ CogniRAG is a production-grade, document-grounded enterprise intelligence assist
 
 ## End-to-End System Architecture
 
+<p align="center">
+  <img src="assets/graph_flowchart_diagram.svg" alt="CogniRAG End-to-End System Flowchart & Graph Architecture" width="100%" />
+</p>
+
 ```
 User Query ──► [QueryPlannerAgent] ──► Intent Strategy Classification
                      │
