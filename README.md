@@ -1,8 +1,24 @@
-# CogniRAG — Universal Enterprise Document Intelligence Assistant
+# 🧠 CogniRAG — Universal Enterprise Document Intelligence Assistant
+
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
+  <a href="https://streamlit.io/"><img src="https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit"></a>
+  <a href="https://neo4j.com/"><img src="https://img.shields.io/badge/Neo4j-5_Community-008CC1?style=for-the-badge&logo=neo4j&logoColor=white" alt="Neo4j"></a>
+  <a href="https://www.pinecone.io/"><img src="https://img.shields.io/badge/Pinecone-Serverless-27272A?style=for-the-badge&logo=pinecone&logoColor=white" alt="Pinecone"></a>
+  <a href="https://openrouter.ai/"><img src="https://img.shields.io/badge/OpenRouter-Free_Models-6441A5?style=for-the-badge&logo=openai&logoColor=white" alt="OpenRouter"></a>
+  <a href="https://aistudio.google.com/"><img src="https://img.shields.io/badge/Google_Gemini-1.5_Flash-8E75C2?style=for-the-badge&logo=googlegemini&logoColor=white" alt="Gemini"></a>
+  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-CPU_Optimized-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch"></a>
+  <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"><img src="https://img.shields.io/badge/Hugging_Face-MiniLM--L6--v2-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face"></a>
+  <a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/SQLite-WAL_Mode-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"></a>
+  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-Compose_Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
+  <a href="https://docs.pytest.org/"><img src="https://img.shields.io/badge/pytest-53%2F53_Passing-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Cost-%240.00%2Fmo_Free-10B981?style=for-the-badge&logo=cashapp&logoColor=white" alt="Cost"></a>
+</p>
 
 CogniRAG is a production-grade, document-grounded enterprise intelligence assistant featuring **Dual-Engine Hybrid Retrieval (Dense Vector + BM25 + Neo4j Knowledge Graph Multi-Hop Traversal)**, **Agentic Strategy Intent Routing**, an **Interactive Visual Graph Explorer**, a **Multi-Tier Cognitive Memory Engine**, and a **Persistent SQLite Database**.
 
 **100% Free Architecture ($0.00/mo)**: Engineered to operate entirely on zero-cost tiers: Pinecone Serverless Free, OpenRouter `:free` model routing, local MiniLM embeddings, and local Docker Neo4j 5 Community (memory-capped at 1.5GB RAM for 16GB systems).
+
 
 ---
 
@@ -20,6 +36,22 @@ CogniRAG is a production-grade, document-grounded enterprise intelligence assist
 | **Hallucination Auditing** | `DocumentGroundingEvaluator` | ✅ Active | Token-level claim verification & numerical audits against chunks & graph context |
 | **Persistent Storage** | SQLite WAL Mode (`rag_app.db`) | ✅ Active | Full chat sessions, messages, citations, memory, and token quotas preserved |
 | **Zero-Block Resilience** | Graceful Degradation | ✅ Active | If Neo4j or Docker is offline, system seamlessly degrades to Vector + BM25 |
+
+---
+
+## 🛠️ Tech Stack & Tooling
+
+| Layer | Technologies & Tools | Badges |
+|---|---|---|
+| **Frontend & Visualization** | Streamlit, PyVis Network, HTML5/CSS3 | [![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io/) [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript) |
+| **Core & Persistence** | Python 3.11+, PyTorch (CPU), SQLite (WAL) | [![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org/) [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/) |
+| **Knowledge Graph Database** | Neo4j 5 Community Edition, Cypher | [![Neo4j](https://img.shields.io/badge/Neo4j-008CC1?style=flat-square&logo=neo4j&logoColor=white)](https://neo4j.com/) |
+| **Vector Database** | Pinecone Serverless (Cosine Metric, 384-dim) | [![Pinecone](https://img.shields.io/badge/Pinecone-27272A?style=flat-square&logo=pinecone&logoColor=white)](https://www.pinecone.io/) |
+| **Chat Inference LLMs** | OpenRouter Free Tier (Llama 3.3, Gemma 3, Mistral 7B) | [![OpenRouter](https://img.shields.io/badge/OpenRouter-6441A5?style=flat-square&logo=openai&logoColor=white)](https://openrouter.ai/) [![Meta](https://img.shields.io/badge/Meta_Llama_3-0467DF?style=flat-square&logo=meta&logoColor=white)](https://llama.meta.com/) |
+| **Batch Ingestion LLM** | Google Gemini 1.5 Flash (1,500 RPD) | [![Google Gemini](https://img.shields.io/badge/Google_Gemini-8E75C2?style=flat-square&logo=googlegemini&logoColor=white)](https://aistudio.google.com/) |
+| **Local Embeddings** | Sentence-Transformers (`all-MiniLM-L6-v2`) | [![Hugging Face](https://img.shields.io/badge/Hugging_Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black)](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) |
+| **Containerization** | Docker, Docker Compose | [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/) |
+| **Test Automation** | Pytest (53/53 Tests Passing) | [![pytest](https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](https://docs.pytest.org/) |
 
 ---
 
