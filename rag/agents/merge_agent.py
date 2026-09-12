@@ -142,6 +142,16 @@ GROUNDED SYNTHESIZED ANSWER WITH INLINE CITATIONS:"""
                 + "\n\n---\n\n".join(individual_answers)
             )
 
+        merged_graph_facts = "\n".join(
+            dict.fromkeys(
+                line.strip()
+                for sub in sub_results
+                if sub.get("graph_context")
+                for line in sub["graph_context"].splitlines()
+                if line.strip()
+            )
+        )
+
         logger.info(
             f"[MergeAgent] Merged {len(sub_results)} sub-results, "
             f"{len(all_unique_chunks)} unique chunks → answer generated."
@@ -154,4 +164,5 @@ GROUNDED SYNTHESIZED ANSWER WITH INLINE CITATIONS:"""
             "citations": all_citations,
             "sub_queries": [sub.get("query", "") for sub in sub_results],
             "formatted_context": merged_context,
+            "graph_context": merged_graph_facts,
         }

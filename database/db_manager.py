@@ -31,7 +31,7 @@ def _utc_now_iso() -> str:
 
 class DatabaseManager:
     """
-    Thread-safe SQLite database manager for RAG_NTPC.
+    Thread-safe SQLite database manager for CogniRAG.
     Ensures persistent storage of all application state.
     """
 

@@ -54,7 +54,7 @@ def test_message_persistence(temp_db: DatabaseManager):
     mid_user = temp_db.save_message(
         session_id=sid,
         role="user",
-        content="What was NTPC's generation capacity in FY24?",
+        content="What was the company's generation capacity in FY24?",
     )
     assert mid_user is not None
 
@@ -62,7 +62,7 @@ def test_message_persistence(temp_db: DatabaseManager):
     mid_asst = temp_db.save_message(
         session_id=sid,
         role="assistant",
-        content="NTPC reached 76 GW commercial capacity [Source: report.pdf, Page 4].",
+        content="Enterprise Corp reached 76 GW commercial capacity [Source: report.pdf, Page 4].",
         citations=["report.pdf (Page 4)"],
         grounding_score=0.95,
         grounding_passed=True,
@@ -87,29 +87,29 @@ def test_message_persistence(temp_db: DatabaseManager):
 def test_document_and_chunk_persistence(temp_db: DatabaseManager):
     # 1. Register document
     temp_db.upsert_document(
-        filename="ntpc_annual_report_fy24.pdf",
+        filename="annual_report_fy24.pdf",
         chunk_count=12,
         file_size=1024000,
     )
 
     docs = temp_db.get_documents()
-    assert "ntpc_annual_report_fy24.pdf" in docs
-    assert docs["ntpc_annual_report_fy24.pdf"]["chunk_count"] == 12
+    assert "annual_report_fy24.pdf" in docs
+    assert docs["annual_report_fy24.pdf"]["chunk_count"] == 12
 
     # 2. Save chunks
     chunks = [
         {
-            "chunk_id": "ntpc_annual_report_fy24_chunk_0",
-            "filename": "ntpc_annual_report_fy24.pdf",
-            "text": "NTPC is India's largest power utility.",
+            "chunk_id": "annual_report_fy24_chunk_0",
+            "filename": "annual_report_fy24.pdf",
+            "text": "Enterprise Corp is a leading global enterprise.",
             "page_number": 1,
             "has_table": False,
             "numeric_count": 0,
             "header_context": "Introduction",
         },
         {
-            "chunk_id": "ntpc_annual_report_fy24_chunk_1",
-            "filename": "ntpc_annual_report_fy24.pdf",
+            "chunk_id": "annual_report_fy24_chunk_1",
+            "filename": "annual_report_fy24.pdf",
             "text": "Total generation reached 422 Billion Units in FY24.",
             "page_number": 2,
             "has_table": True,
@@ -120,38 +120,38 @@ def test_document_and_chunk_persistence(temp_db: DatabaseManager):
     temp_db.save_chunk_texts(chunks)
 
     # 3. Retrieve chunk text
-    text0 = temp_db.get_chunk_text("ntpc_annual_report_fy24_chunk_0")
-    assert text0 == "NTPC is India's largest power utility."
+    text0 = temp_db.get_chunk_text("annual_report_fy24_chunk_0")
+    assert text0 == "Enterprise Corp is a leading global enterprise."
 
     all_chunks = temp_db.get_all_chunks()
     assert len(all_chunks) == 2
 
     # 4. Delete document (cascades to chunks)
-    deleted_chunks = temp_db.delete_document("ntpc_annual_report_fy24.pdf")
+    deleted_chunks = temp_db.delete_document("annual_report_fy24.pdf")
     assert deleted_chunks == 2
-    assert "ntpc_annual_report_fy24.pdf" not in temp_db.get_documents()
-    assert temp_db.get_chunk_text("ntpc_annual_report_fy24_chunk_0") is None
+    assert "annual_report_fy24.pdf" not in temp_db.get_documents()
+    assert temp_db.get_chunk_text("annual_report_fy24_chunk_0") is None
 
 
 def test_user_preferences_and_facts(temp_db: DatabaseManager):
     # Preferences
-    temp_db.set_preference("currency", "INR Crore")
-    assert temp_db.get_preference("currency") == "INR Crore"
+    temp_db.set_preference("currency", "USD Millions")
+    assert temp_db.get_preference("currency") == "USD Millions"
     assert temp_db.get_preference("nonexistent", default="default_val") == "default_val"
 
     prefs = temp_db.get_all_preferences()
-    assert prefs.get("currency") == "INR Crore"
+    assert prefs.get("currency") == "USD Millions"
 
     temp_db.delete_preference("currency")
     assert temp_db.get_preference("currency") is None
 
     # Semantic Facts
-    fid = temp_db.save_fact("NTPC", "capacity_gw", "76", source="annual_report")
+    fid = temp_db.save_fact("Acme Corp", "capacity_gw", "76", source="annual_report")
     assert fid is not None
 
     facts = temp_db.get_all_facts()
     assert len(facts) == 1
-    assert facts[0]["subject"] == "NTPC"
+    assert facts[0]["subject"] == "Acme Corp"
     assert facts[0]["object"] == "76"
 
     temp_db.delete_fact(fid)

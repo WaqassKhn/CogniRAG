@@ -28,26 +28,42 @@ import logging
 import re
 from typing import Optional, TYPE_CHECKING
 
+from rag.graph.extractor import EntityNormalizer
+
 if TYPE_CHECKING:
     from rag.openrouter_llm import OpenRouterLLM
 
 logger = logging.getLogger(__name__)
 
-_PLANNER_SYSTEM_PROMPT = """You are a query planning assistant for a document RAG system.
+_PLANNER_SYSTEM_PROMPT = """You are an agentic query planning assistant for an enterprise Document & Knowledge Graph RAG system.
 Given a user query and a list of available indexed documents, output a retrieval plan as JSON.
 
 Rules:
-- "simple": single factual question answerable in one retrieval pass.
-  Examples: "What is NTPC's revenue?", "Who is the CEO?", "What is the date of the report?"
-- "complex": requires comparison, aggregation across time periods, or multiple distinct facts.
-  Examples: "Compare Q1 vs Q4 revenue", "Summarize financial highlights AND operational metrics",
-            "What changed between FY23 and FY24?"
-- sub_queries: for simple, return [original_query]. For complex, return 2-4 focused sub-queries
-  that each target a specific, narrow fact.
-- doc_scope: ONLY set if the query explicitly names a document or mentions a topic that clearly
-  maps to ONE of the listed documents. Otherwise null.
+- "complexity":
+  - "simple": single factual question answerable in one retrieval pass.
+  - "complex": requires comparison, aggregation across time periods, or multiple distinct facts.
+- "strategy":
+  - "graph_only": direct structural, relational, hierarchy, or approval workflow questions.
+    Examples: "Who does the VP report to?", "Who approves travel requests over $5,000?", "List departments and their heads"
+  - "vector_only": pure narrative overviews, background summaries, or broad conceptual descriptions.
+    Examples: "Summarize company history", "What is our corporate philosophy?", "Provide an overview of the introduction"
+  - "hybrid": multi-hop analytical questions combining document text with relational entity governance.
+    Examples: "Compare reimbursement policies between HR and Engineering in FY24", "Summarize Q3 operational highlights and approving authorities"
+- "sub_queries":
+  - For simple, return [original_query].
+  - For complex, return 2-4 focused sub-queries targeting specific aspects.
+- "doc_scope": ONLY set if the query explicitly names a document or clear topic matching ONE of the listed documents. Otherwise null.
+- "target_entities": list of key named entities (roles, policies, departments, metrics) referenced in the query, or null.
 
-Output ONLY valid JSON. No explanation. No markdown fences."""
+Output ONLY valid JSON. No explanation. No markdown fences.
+Schema:
+{
+  "complexity": "simple" | "complex",
+  "strategy": "hybrid" | "vector_only" | "graph_only",
+  "sub_queries": ["..."],
+  "doc_scope": ["filename.pdf"] | null,
+  "target_entities": ["..."] | null
+}"""
 
 _PLANNER_USER_TEMPLATE = """Available documents: {doc_list}
 
@@ -58,9 +74,9 @@ JSON plan:"""
 
 class QueryPlannerAgent:
     """
-    Classifies query complexity and decomposes complex queries into sub-queries.
-    Falls back to treating the query as simple if the LLM is unavailable or
-    returns malformed JSON.
+    Classifies query complexity, strategy routing (hybrid / vector_only / graph_only),
+    and decomposes complex queries into targeted sub-queries.
+    Falls back to deterministic heuristics if the LLM is unavailable or returns malformed JSON.
     """
 
     def __init__(
@@ -82,18 +98,23 @@ class QueryPlannerAgent:
         Returns:
             {
                 "complexity": "simple" | "complex",
+                "strategy": "hybrid" | "vector_only" | "graph_only",
                 "sub_queries": list[str],
                 "doc_scope": list[str] | None,
+                "target_entities": list[str] | None,
             }
         """
+        fallback_strategy = self.classify_strategy_heuristic(query)
         fallback = {
             "complexity": "simple",
+            "strategy": fallback_strategy,
             "sub_queries": [query],
             "doc_scope": None,
+            "target_entities": self.extract_heuristic_entities(query),
         }
 
         if not self.llm or not self.llm.is_available():
-            logger.debug("[QueryPlanner] LLM unavailable — treating query as simple.")
+            logger.debug("[QueryPlanner] LLM unavailable — using heuristic plan fallback.")
             return fallback
 
         doc_list = ", ".join(self.known_documents) if self.known_documents else "No documents listed"
@@ -111,19 +132,20 @@ class QueryPlannerAgent:
             plan = self._parse_plan(raw, query)
             logger.info(
                 f"[QueryPlanner] complexity={plan['complexity']}, "
+                f"strategy={plan['strategy']}, "
                 f"sub_queries={len(plan['sub_queries'])}, "
                 f"doc_scope={plan['doc_scope']}"
             )
             return plan
 
         except Exception as exc:
-            logger.warning(f"[QueryPlanner] Failed to plan query: {exc}. Using simple fallback.")
+            logger.warning(f"[QueryPlanner] Failed to plan query: {exc}. Using heuristic fallback.")
             return fallback
 
     def _parse_plan(self, raw: str, original_query: str) -> dict:
         """
         Parses LLM output into a validated plan dict.
-        Falls back to simple plan on any parse error.
+        Falls back to simple heuristic plan on any parse error.
         """
         # Extract JSON block (handles markdown fences, leading text, etc.)
         json_match = re.search(r'\{.*\}', raw, re.DOTALL)
@@ -135,6 +157,10 @@ class QueryPlannerAgent:
         complexity = data.get("complexity", "simple")
         if complexity not in ("simple", "complex"):
             complexity = "simple"
+
+        strategy = data.get("strategy")
+        if strategy not in ("hybrid", "vector_only", "graph_only"):
+            strategy = self.classify_strategy_heuristic(original_query)
 
         sub_queries = data.get("sub_queries", [original_query])
         if not isinstance(sub_queries, list) or not sub_queries:
@@ -153,8 +179,69 @@ class QueryPlannerAgent:
                 # Filter to only known documents
                 doc_scope = [d for d in doc_scope if d in self.known_documents] or None
 
+        target_entities = data.get("target_entities")
+        if target_entities is not None and not isinstance(target_entities, list):
+            target_entities = None
+        if not target_entities:
+            target_entities = self.extract_heuristic_entities(original_query) or None
+
         return {
             "complexity": complexity,
+            "strategy": strategy,
             "sub_queries": sub_queries,
             "doc_scope": doc_scope,
+            "target_entities": target_entities,
         }
+
+    @staticmethod
+    def classify_strategy_heuristic(query: str) -> str:
+        """
+        Deterministic fast classification into 'graph_only', 'vector_only', or 'hybrid'.
+        """
+        q_lower = query.lower()
+
+        # 1. Structural / Relational / Governance intent
+        graph_patterns = [
+            r'\breports?\s+to\b',
+            r'\bwho\s+approves\b',
+            r'\bapprov(?:al|ed\s+by|ing\s+authority)\b',
+            r'\bescalat(?:e|ion)\s+to\b',
+            r'\borganogram\b',
+            r'\bhierarchy\b',
+            r'\bwho\s+is\s+the\s+(?:head|lead|director|manager|officer|vp|ceo|cfo|md)\b',
+            r'\bdepartments?\s+and\s+their\s+heads?\b',
+            r'\bwhich\s+department\s+owns\b',
+        ]
+        if any(re.search(p, q_lower) for p in graph_patterns):
+            return "graph_only"
+
+        # 2. Pure narrative / high-level summary intent
+        narrative_patterns = [
+            r'\bsummarize\s+(?:the\s+)?(?:history|overview|introduction|background)\b',
+            r'\b(?:what\s+is|explain|describe)\s+.*?\b(?:mission|vision|philosophy|history|background)\b',
+            r'\b(?:corporate\s+)?(?:philosophy|mission\s+statement|vision\s+statement)\b',
+            r'\bgive\s+(?:a\s+)?general\s+overview\b',
+        ]
+        if any(re.search(p, q_lower) for p in narrative_patterns):
+            return "vector_only"
+
+        # 3. Default to hybrid dual retrieval
+        return "hybrid"
+
+    @staticmethod
+    def extract_heuristic_entities(query: str) -> list[str]:
+        """Extracts candidate target entities from query for graph targeting."""
+        entities = []
+        for dept_k, canonical in EntityNormalizer.DEPARTMENT_MAP.items():
+            if re.search(rf'\b{re.escape(dept_k)}\b', query, re.IGNORECASE):
+                if canonical not in entities:
+                    entities.append(canonical)
+        for role_k, canonical in EntityNormalizer.ROLE_MAP.items():
+            if re.search(rf'\b{re.escape(role_k)}\b', query, re.IGNORECASE):
+                if canonical not in entities:
+                    entities.append(canonical)
+        for m in re.finditer(r'\b(?:Section|Clause|Policy|SOP)\s+[A-Za-z0-9\.]+\b', query, re.IGNORECASE):
+            val = m.group(0).strip()
+            if val not in entities:
+                entities.append(val)
+        return entities

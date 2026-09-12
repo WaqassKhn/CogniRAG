@@ -134,7 +134,7 @@ class ErrorDiagnosticManager:
                 root_cause="The local embedding model produces 384-dimensional vectors (`all-MiniLM-L6-v2`), but your Pinecone index was created with a different dimension (e.g. 1536 or 768).",
                 remedy_steps=[
                     "Log in to https://app.pinecone.io.",
-                    "Create or recreate a Serverless index named `rag-ntpc` with **Dimensions: 384** and **Metric: cosine**.",
+                    "Create or recreate a Serverless index with **Dimensions: 384** and **Metric: cosine**.",
                     "Update `PINECONE_INDEX_NAME` in `.env` if using a different index name.",
                 ],
                 raw_error=raw_tb,
