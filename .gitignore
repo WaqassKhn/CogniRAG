@@ -35,6 +35,11 @@ DEVELOPMENT_PLAN.md
 DEPLOYMENT_GUIDE.md
 TOKEN_BUDGET_GUIDE.md
 explanation.md
+AGENTS.md
+GEMINI.md
+graphrag_integration.md
+docs/
+evaluation/
 
 # Evaluation Outputs, Experiment Summaries & Logs
 evals/
@@ -42,6 +47,9 @@ ragbench eval score/
 experiments/
 logs/
 *.log
+tests/test_enterprise_v2_dataset.py
+tests/test_production_evaluation.py
+tests/test_retrieval_benchmark.py
 
 # Automated Testing & Coverage
 .pytest_cache/

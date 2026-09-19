@@ -108,6 +108,7 @@ class QueryPlannerAgent:
         fallback = {
             "complexity": "simple",
             "strategy": fallback_strategy,
+            "mode": self.strategy_to_retrieval_mode(fallback_strategy),
             "sub_queries": [query],
             "doc_scope": None,
             "target_entities": self.extract_heuristic_entities(query),
@@ -188,10 +189,24 @@ class QueryPlannerAgent:
         return {
             "complexity": complexity,
             "strategy": strategy,
+            "mode": self.strategy_to_retrieval_mode(strategy),
             "sub_queries": sub_queries,
             "doc_scope": doc_scope,
             "target_entities": target_entities,
         }
+
+    @staticmethod
+    def strategy_to_retrieval_mode(strategy: str) -> str:
+        """
+        Maps a planner strategy ('vector_only', 'graph_only', 'hybrid')
+        to the concrete RAGChain retrieval mode ('dense_bm25', 'graph_only', 'hybrid').
+        """
+        strat = (strategy or "").lower().strip()
+        if strat in ("graph_only", "graph"):
+            return "graph_only"
+        elif strat in ("vector_only", "dense", "dense_bm25"):
+            return "dense_bm25"
+        return "hybrid"
 
     @staticmethod
     def classify_strategy_heuristic(query: str) -> str:

@@ -8,6 +8,7 @@ from rag.graph.neo4j_client import Neo4jClient
 from rag.graph.extractor import GraphExtractor, EntityNormalizer
 from rag.graph.retriever import GraphRetriever
 from rag.graph.visualizer import GraphVisualizer
+from rag.graph.fact_scorer import GraphFactScorer, fact_to_text
 
 __all__ = [
     "Neo4jClient",
@@ -15,4 +16,6 @@ __all__ = [
     "EntityNormalizer",
     "GraphRetriever",
     "GraphVisualizer",
+    "GraphFactScorer",
+    "fact_to_text",
 ]
