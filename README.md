@@ -11,11 +11,11 @@
   <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"><img src="https://img.shields.io/badge/Hugging_Face-MiniLM--L6--v2-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face"></a>
   <a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/SQLite-WAL_Mode-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"></a>
   <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-Compose_Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
-  <a href="https://docs.pytest.org/"><img src="https://img.shields.io/badge/pytest-53%2F53_Passing-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"></a>
+  <a href="https://docs.pytest.org/"><img src="https://img.shields.io/badge/pytest-59%2F59_Passing-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"></a>
   <a href="#"><img src="https://img.shields.io/badge/Cost-%240.00%2Fmo_Free-10B981?style=for-the-badge&logo=cashapp&logoColor=white" alt="Cost"></a>
 </p>
 
-CogniRAG is a production-grade, document-grounded enterprise intelligence assistant featuring **Dual-Engine Hybrid Retrieval (Dense Vector + BM25 + Neo4j Knowledge Graph Multi-Hop Traversal)**, **Agentic Strategy Intent Routing**, an **Interactive Visual Graph Explorer**, a **Multi-Tier Cognitive Memory Engine**, and a **Persistent SQLite Database**.
+CogniRAG is a production-grade, document-grounded enterprise intelligence assistant featuring **Dual-Engine Hybrid Retrieval (Dense Vector + BM25 + Neo4j Knowledge Graph Multi-Hop Traversal)**, **Dynamic Knowledge Graph Fact Scoring**, **Unified Multi-Way Reciprocal Rank Fusion (RRF)**, **4 Distinct Retrieval Execution Pipelines (`dense`, `dense_bm25`, `graph_only`, `hybrid`)**, **Agentic Strategy Intent Routing**, an **Interactive Visual Graph Explorer**, a **Multi-Tier Cognitive Memory Engine**, and a **Persistent SQLite Database**.
 
 **100% Free Architecture ($0.00/mo)**: Engineered to operate entirely on zero-cost tiers: Pinecone Serverless Free, OpenRouter `:free` model routing, local MiniLM embeddings, and local Docker Neo4j 5 Community (memory-capped at 1.5GB RAM for 16GB systems).
 
@@ -27,10 +27,13 @@ CogniRAG is a production-grade, document-grounded enterprise intelligence assist
 | Capability | Component | Status | Details |
 |---|---|:---:|---|
 | **Dense Vector Search** | Pinecone Serverless + MiniLM | 🟢 Active | Cloud vector index with 384-dim embeddings computed locally at $0 cost |
-| **Sparse Keyword Search** | BM25 + Reciprocal Rank Fusion (RRF) | 🟢 Active | Exact keyword, clause, and code matching fused with vector rankings |
-| **Knowledge Graph Traversal** | Neo4j 5 Community | 🟢 Active | Multi-hop relational Cypher queries across policies, roles, departments, & metrics |
+| **Sparse Keyword Search** | BM25 Okapi | 🟢 Active | Exact keyword, clause, and numerical code matching |
+| **Graph Fact Scoring & Ranking** | `GraphFactScorer` | 🟢 Active | 5-component composite scoring (Semantic Similarity + Entity Match + Relation Match + Confidence + Hop Distance Penalty) |
+| **Unified Multi-Way RRF Fusion** | `HybridReranker` | 🟢 Active | Generalized 3-way Reciprocal Rank Fusion combining Dense, BM25, and Graph evidence into one combined sorted list |
+| **4 Discrete Retrieval Pipelines** | `RAGChain.retrieve_context` | 🟢 Active | Discrete, genuine execution pipelines for `dense`, `dense_bm25`, `graph_only`, and `hybrid` modes |
+| **Knowledge Graph Traversal** | Neo4j 5 Community | 🟢 Active | Multi-hop relational Cypher queries across policies, roles, departments, & metrics with path distance and edge confidence |
 | **Dual Ingestion Pipeline** | `DualIngestionPipeline` | 🟢 Active | Parses, chunks, vectorizes, extracts entities/relations, and synchronizes deletion |
-| **Agentic Strategy Routing** | `QueryPlannerAgent` | 🟢 Active | Dynamically routes queries to `graph_only`, `vector_only`, or `hybrid` strategies |
+| **Agentic Strategy Routing** | `QueryPlannerAgent` | 🟢 Active | Dynamically routes queries to retrieval modes; supports manual override in Settings |
 | **Visual Graph Explorer** | PyVis + Streamlit | 🟢 Active | Dark Minimal interactive canvas (`#080c0a`), color-coded nodes, physics simulation |
 | **Cognitive Memory Engine** | `CognitiveHub` | 🟢 Active | 4-Tier memory: Working (buffer), Episodic (time-decayed), Semantic, Procedural |
 | **Hallucination Auditing** | `DocumentGroundingEvaluator` | 🟢 Active | Token-level claim verification & numerical audits against chunks & graph context |
@@ -51,7 +54,8 @@ CogniRAG is a production-grade, document-grounded enterprise intelligence assist
 | **Batch Ingestion LLM** | Google Gemini 1.5 Flash (1,500 RPD) | [![Google Gemini](https://img.shields.io/badge/Google_Gemini-8E75C2?style=flat-square&logo=googlegemini&logoColor=white)](https://aistudio.google.com/) |
 | **Local Embeddings** | Sentence-Transformers (`all-MiniLM-L6-v2`) | [![Hugging Face](https://img.shields.io/badge/Hugging_Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black)](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) |
 | **Containerization** | Docker, Docker Compose | [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/) |
-| **Test Automation** | Pytest (53/53 Tests Passing) | [![pytest](https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](https://docs.pytest.org/) |
+| **Test Automation** | Pytest (59/59 Tests Passing) | [![pytest](https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](https://docs.pytest.org/) |
+
 
 ---
 
@@ -60,6 +64,52 @@ CogniRAG is a production-grade, document-grounded enterprise intelligence assist
 <p align="center">
   <img src="assets/graph_flowchart_diagram.svg" alt="CogniRAG End-to-End System Flowchart & Graph Architecture" width="100%" />
 </p>
+
+### Retrieval Execution Pipelines & Multi-Way RRF
+
+CogniRAG implements 4 genuinely distinct retrieval pipelines rather than cosmetic prompt additions:
+
+```
+User Query
+    │
+    ├── Mode = "dense"        ──► [Pinecone/FAISS Dense Vector Search] ──────► Top K Chunks (Ranked by Cosine Sim)
+    │
+    ├── Mode = "dense_bm25"   ──► [Dense Search] + [BM25 Search] ────────────► 2-Way RRF Fusion
+    │
+    ├── Mode = "graph_only"   ──► [Neo4j Traversal] ──► [GraphFactScorer] ────► Ranked Graph Facts & Evidence Chunks
+    │                                                    (Sim + Entity +
+    │                                                     Rel + Conf + Dist)
+    │
+    └── Mode = "hybrid"       ──► [Dense Search] + [BM25 Search] + [GraphFactScorer]
+                                                       │
+                                                       ▼
+                                         [Unified 3-Way RRF Fusion]
+                                                       │
+                                                       ▼
+                                    One Combined, Scored, Sorted List!
+```
+
+#### Knowledge Graph Fact Scoring Formula
+Graph facts are scored and ranked via `GraphFactScorer` (`rag/graph/fact_scorer.py`) using a 5-component composite metric:
+
+```text
+Score_graph = 0.40 · Sim + 0.25 · Entity + 0.15 · Rel + 0.10 · Conf + 0.10 · Dist
+```
+
+- **Semantic Similarity (40%):** Local cosine similarity between query and standardized fact text (`all-MiniLM-L6-v2`, $0 API cost).
+- **Entity Match (25%):** Exact, normalized, and token overlap between query terms and source/target entities.
+- **Relationship Match (15%):** Intent token matching across relation types and edge descriptions.
+- **Extraction Confidence (10%):** Edge extraction confidence score `[0.0, 1.0]`.
+- **Hop Distance Penalty (10%):** Traversal distance decay penalty `(1 / hop_distance)`.
+
+#### Unified Multi-Way Reciprocal Rank Fusion (RRF)
+`HybridReranker` (`rag/reranker.py`) computes unified relevance across Dense, BM25, and Graph rankings:
+
+```text
+RRF(chunk) = ∑ [ weight_i / (K_rrf + rank_i(chunk)) ]    where i ∈ {dense, bm25, graph}
+```
+
+Chunks surfaced exclusively through multi-hop graph traversal are dynamically resolved from the vector store metadata, ensuring no evidence is lost.
 
 ---
 
@@ -168,7 +218,7 @@ Open your browser at `http://localhost:8501`.
    - Multi-session chat history persisted in SQLite WAL database.
    - Real-time token streaming with automatic fallback across OpenRouter `:free` models.
    - Dynamic strategy indicators: `[⚡ Graph-Only Strategy]`, `[🌿 Hybrid Dual Strategy]`, `[📄 Vector-Only Strategy]`.
-   - Collapsible verification trays for document chunk citations and multi-hop knowledge graph relation paths.
+   - Collapsible verification trays for document chunk citations and multi-hop knowledge graph relation paths with dynamic relevance scores (e.g. `[Relevance: 94.2%]`).
    - Token-level grounding audits and numerical accuracy validation.
 
 2. **Documents Tab (`Documents`)**:
@@ -190,6 +240,7 @@ Open your browser at `http://localhost:8501`.
    - Tabular inspector for nodes and relational edges with chunk provenance.
 
 4. **Settings Tab (`Settings`)**:
+   - **Retrieval Pipeline Mode Override**: Switch between `Auto (Planner Guided)`, `Hybrid (Dense + BM25 + Graph)`, `Dense + BM25`, `Graph Only`, and `Dense Only`.
    - Cognitive Memory Explorer (Working, Episodic, Semantic, Procedural).
    - Daily token budget quota meter and model latency telemetry.
 
@@ -197,27 +248,32 @@ Open your browser at `http://localhost:8501`.
 
 ## Automated Test Suite
 
-CogniRAG includes a test suite covering the full dual-retrieval pipeline, cognitive memory, database, and graph extraction:
+CogniRAG includes a comprehensive test suite (59 tests, 100% pass rate) covering the full dual-retrieval pipeline, scored graph facts, cognitive memory, database, and tracer diagnostics:
 
 ```bash
-# Run all GraphRAG unit tests (24/24 tests)
-pytest tests/test_query_planner_graph.py tests/test_graph_visualizer.py tests/test_grounding_eval_graph.py tests/test_ingestion_pipeline.py tests/test_graph_retriever.py tests/test_hybrid_rag_chain.py tests/test_graph_extractor.py tests/test_neo4j_client.py -v
-
-# Run the complete project test suite
+# Run the complete project test suite (59/59 tests passing)
 pytest -v
+
+# Run Graph Fact Scorer & Hybrid RAG Chain tests
+pytest tests/test_graph_fact_scorer.py tests/test_hybrid_rag_chain.py -v
 ```
 
 ### Test Suite Coverage
+- `tests/test_graph_fact_scorer.py`: 5-component composite scoring, semantic similarity, entity overlap, relation matching, hop distance decay, and lexical fallback.
+- `tests/test_hybrid_rag_chain.py`: Streaming and non-streaming RAG execution across all 4 modes (`dense`, `dense_bm25`, `graph_only`, `hybrid`).
 - `tests/test_query_planner_graph.py`: Agentic strategy classification heuristics, entity extraction, and LLM offline fallback.
 - `tests/test_graph_visualizer.py`: PyVis canvas generation, color mapping, and empty-state handling.
 - `tests/test_grounding_eval_graph.py`: Claim support and numerical accuracy verification using both text chunks and graph context.
 - `tests/test_ingestion_pipeline.py`: Dual-ingestion coordination, Pinecone + Neo4j synchronization, offline resilience, and document deletion.
-- `tests/test_graph_retriever.py`: Entity resolution, multi-hop Cypher queries, and relation formatting.
-- `tests/test_hybrid_rag_chain.py`: Streaming and non-streaming RAG execution with dual-context fusion.
+- `tests/test_graph_retriever.py`: Entity resolution, multi-hop Cypher queries, and ranked relation formatting.
 - `tests/test_graph_extractor.py`: Normalization (`FY{yy}`, acronyms), entity/triplet extraction for enterprise policies and reports.
 - `tests/test_neo4j_client.py`: Schema constraint initialization, connection pooling, and batch Cypher upserts.
 - `tests/test_database.py`: SQLite session management, message history, and token logging.
 - `tests/test_cognitive_memory.py`: Working, episodic (time decay), semantic, and procedural memory tiers.
+- `tests/test_openrouter_llm.py`: Multi-model routing, fallback chains, rate limit handling, and stream fallback.
+- `tests/test_pinecone_db.py`: Vector upsert, metadata filtering, and document deletion.
+- `tests/test_pipeline.py`: Document parsing, cleaning, chunking, embedding, vector DB search, and hybrid reranking.
+- `tests/test_tracer_and_diagnostics.py`: Execution tracer lifecycle and error diagnostics.
 
 ---
 
@@ -244,20 +300,21 @@ cognirag/
 │   ├── embeddings.py          # Local MiniLM-L6-v2 embeddings (0 API token cost)
 │   └── pinecone_db.py         # Pinecone Serverless client backed by SQLite DB
 ├── rag/
-│   ├── chain.py               # End-to-End RAG chain with dual vector + graph context fusion
-│   ├── reranker.py            # Hybrid BM25 + Vector Reciprocal Rank Fusion (RRF)
+│   ├── chain.py               # 4-mode RAG chain with unified multi-way fusion
+│   ├── reranker.py            # Generalized N-way Reciprocal Rank Fusion (RRF)
 │   ├── openrouter_llm.py      # Multi-model router for OpenRouter free-tier LLMs
 │   ├── llm.py                 # Google Gemini Flash SDK fallback
 │   ├── cache.py               # Semantic Answer Cache
 │   ├── token_counter.py       # Live TokenTracker & quota accounting
 │   ├── agents/
-│   │   ├── query_planner.py   # Agentic strategy routing (graph_only, vector_only, hybrid)
+│   │   ├── query_planner.py   # Agentic strategy routing (dense, dense_bm25, graph_only, hybrid)
 │   │   └── merge_agent.py     # Synthesizes multi-retrieval results and graph contexts
 │   ├── graph/
-│   │   ├── __init__.py        # Exports Neo4jClient, GraphExtractor, GraphRetriever, GraphVisualizer
+│   │   ├── __init__.py        # Exports Neo4jClient, GraphExtractor, GraphRetriever, GraphVisualizer, GraphFactScorer
+│   │   ├── fact_scorer.py     # 5-component composite scoring model for Knowledge Graph facts
 │   │   ├── neo4j_client.py    # Connection pooling, constraints, multi-hop Cypher queries
 │   │   ├── extractor.py       # EntityNormalizer + hybrid rule & LLM entity/triplet extractor
-│   │   ├── retriever.py       # Query entity resolver & multi-hop relation retrieval
+│   │   ├── retriever.py       # Scored graph fact retrieval & evidence chunk aggregation
 │   │   └── visualizer.py      # PyVis Dark Minimal interactive network visualizer
 │   └── memory/
 │       ├── cognitive_hub.py   # Unified 4-tier cognitive memory coordinator
@@ -265,22 +322,22 @@ cognirag/
 │       ├── episodic_memory.py # Time-decayed past session recall
 │       ├── semantic_memory.py # User preferences & domain fact graph
 │       └── procedural_memory.py # Domain task execution workflows
-├── evaluation/
-│   ├── eval_ragbench.py       # RAGBench dataset evaluation runner
-│   └── grounding_eval.py      # LLM-as-judge claim verification & numerical auditor (chunks + graph)
 └── tests/
+    ├── test_graph_fact_scorer.py
+    ├── test_hybrid_rag_chain.py
     ├── test_query_planner_graph.py
     ├── test_graph_visualizer.py
     ├── test_grounding_eval_graph.py
     ├── test_ingestion_pipeline.py
     ├── test_graph_retriever.py
-    ├── test_hybrid_rag_chain.py
     ├── test_graph_extractor.py
     ├── test_neo4j_client.py
     ├── test_database.py
     ├── test_cognitive_memory.py
     ├── test_openrouter_llm.py
-    └── test_pipeline.py
+    ├── test_pinecone_db.py
+    ├── test_pipeline.py
+    └── test_tracer_and_diagnostics.py
 ```
 
 ---

@@ -725,7 +725,8 @@ def get_graph_extractor():
 @st.cache_resource
 def get_graph_retriever():
     client = get_neo4j_client()
-    return GraphRetriever(neo4j_client=client)
+    emb = get_embedding_manager()
+    return GraphRetriever(neo4j_client=client, embedding_manager=emb)
 
 @st.cache_resource
 def get_graph_visualizer():
@@ -761,6 +762,8 @@ def init_session_state():
         st.session_state.retrieval_top_k = INITIAL_TOP_K
     if "rerank_top_k" not in st.session_state:
         st.session_state.rerank_top_k = RERANKED_TOP_K
+    if "retrieval_mode_override" not in st.session_state:
+        st.session_state.retrieval_mode_override = "Auto (Planner Guided)"
 
     # Ensure active session exists in DB
     sessions = db.list_sessions(limit=1)
@@ -1024,6 +1027,19 @@ def render_chat_tab():
             formatted_context = ""
             graph_context = ""
 
+            # Determine active retrieval mode (planner guided or manual override)
+            mode_override = st.session_state.get("retrieval_mode_override", "Auto (Planner Guided)")
+            if mode_override == "Hybrid (Dense + BM25 + Graph)":
+                active_mode = "hybrid"
+            elif mode_override == "Dense + BM25":
+                active_mode = "dense_bm25"
+            elif mode_override == "Dense Only":
+                active_mode = "dense"
+            elif mode_override == "Graph Only":
+                active_mode = "graph_only"
+            else:
+                active_mode = plan.get("mode", "hybrid")
+
             is_direct_plan = (
                 plan.get("strategy") == "direct"
                 or plan.get("complexity", "simple") == "simple"
@@ -1038,6 +1054,7 @@ def render_chat_tab():
                     filter_filenames=plan.get("doc_scope"),
                     memory_context=cognitive_context,
                     tracer=tracer,
+                    mode=active_mode,
                 ):
                     if event_type == "context":
                         reranked_chunks = data
@@ -1065,6 +1082,7 @@ def render_chat_tab():
                             filter_filenames=plan.get("doc_scope"),
                             memory_context=cognitive_context,
                             tracer=tracer,
+                            mode=active_mode,
                         )
                         sub_results.append(result)
 
@@ -1085,12 +1103,13 @@ def render_chat_tab():
                         for i, sq in enumerate(merged["sub_queries"], 1):
                             st.markdown(f"**Sub-query {i}:** {sq}")
 
-            # Strategy badge
-            strategy = plan.get("strategy", "hybrid")
-            if strategy == "graph_only":
+            # Strategy badge reflecting active retrieval pipeline
+            if active_mode == "graph_only":
                 strategy_badge = '<span class="badge-grounded" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">⚡ Graph-Only Strategy</span>'
-            elif strategy == "vector_only":
-                strategy_badge = '<span class="badge-grounded" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">📄 Vector-Only Strategy</span>'
+            elif active_mode == "dense":
+                strategy_badge = '<span class="badge-grounded" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">📄 Dense Vector Strategy</span>'
+            elif active_mode == "dense_bm25":
+                strategy_badge = '<span class="badge-grounded" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">📄 Dense + BM25 Strategy</span>'
             else:
                 strategy_badge = '<span class="badge-grounded" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; display: inline-block;">🌿 Hybrid Dual Strategy</span>'
             st.markdown(strategy_badge, unsafe_allow_html=True)
@@ -1554,6 +1573,21 @@ def render_settings_tab():
         st.divider()
 
         st.markdown("### Retrieval settings")
+        mode_options = [
+            "Auto (Planner Guided)",
+            "Hybrid (Dense + BM25 + Graph)",
+            "Dense + BM25",
+            "Dense Only",
+            "Graph Only",
+        ]
+        curr_mode = st.session_state.get("retrieval_mode_override", "Auto (Planner Guided)")
+        mode_idx = mode_options.index(curr_mode) if curr_mode in mode_options else 0
+        st.session_state.retrieval_mode_override = st.selectbox(
+            "Retrieval pipeline mode",
+            options=mode_options,
+            index=mode_idx,
+            help="Select 'Auto' to let the QueryPlanner decide, or force a specific retrieval pipeline arm.",
+        )
         st.session_state.retrieval_top_k = st.slider(
             "Initial retrieval top-K", 5, 30, st.session_state.retrieval_top_k
         )

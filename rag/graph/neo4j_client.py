@@ -315,7 +315,7 @@ class Neo4jClient:
         MATCH (start:Entity)
         WHERE toLower(start.name) = toLower(name)
         MATCH path = (start)-[r:RELATES_TO*1..{hops}]-(connected:Entity)
-        WITH r, start, connected, relationships(path) AS rels
+        WITH path, relationships(path) AS rels, length(path) AS hop_distance
         UNWIND rels AS rel
         RETURN DISTINCT
             startNode(rel).name AS source,
@@ -323,6 +323,8 @@ class Neo4jClient:
             rel.type AS relation_type,
             rel.description AS description,
             rel.evidence_chunk_id AS chunk_id,
+            coalesce(rel.confidence, 1.0) AS confidence,
+            hop_distance,
             endNode(rel).name AS target,
             endNode(rel).type AS target_type
         LIMIT $limit

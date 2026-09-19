@@ -107,3 +107,45 @@ def test_rag_chain_run_stream_with_graph_fusion(mock_chain_components):
     done_event = next(data for etype, data in events if etype == "done")
     assert "[Knowledge Graph]" in done_event["citations"]
     assert "Travel Policy" in done_event["graph_context"]
+
+
+def test_rag_chain_run_modes(mock_chain_components):
+    mock_vdb, mock_emb, mock_llm, mock_reranker, mock_graph_retriever = mock_chain_components
+
+    chain = RAGChain(
+        vector_db=mock_vdb,
+        embedding_manager=mock_emb,
+        llm=mock_llm,
+        reranker=mock_reranker,
+        graph_retriever=mock_graph_retriever,
+    )
+
+    # 1. Test dense-only mode
+    res_dense = chain.run("What is travel policy?", mode="dense")
+    assert res_dense["mode_used"] == "dense"
+    assert res_dense["graph_context"] == ""
+    assert "[Knowledge Graph]" not in res_dense["citations"]
+    assert len(res_dense["reranked_chunks"]) > 0
+
+    # 2. Test dense_bm25 mode (vector_only)
+    res_bm25 = chain.run("What is travel policy?", mode="dense_bm25")
+    assert res_bm25["mode_used"] == "dense_bm25"
+    assert res_bm25["graph_context"] == ""
+    assert "[Knowledge Graph]" not in res_bm25["citations"]
+
+    # 3. Test graph_only mode
+    mock_vdb.search.reset_mock()
+    res_graph = chain.run("Who approves travel?", mode="graph_only")
+    assert res_graph["mode_used"] == "graph_only"
+    assert res_graph["graph_context"] != ""
+    assert "[Knowledge Graph]" in res_graph["citations"]
+    # Verify dense vector search was NOT called in graph_only mode
+    assert mock_vdb.search.call_count == 0
+
+    # 4. Test hybrid mode
+    res_hybrid = chain.run("Who approves travel?", mode="hybrid")
+    assert res_hybrid["mode_used"] == "hybrid"
+    assert res_hybrid["graph_context"] != ""
+    assert "[Knowledge Graph]" in res_hybrid["citations"]
+    assert "ranked_items" in res_hybrid
+
