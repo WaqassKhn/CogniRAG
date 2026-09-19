@@ -88,21 +88,6 @@ User Query
                                                        ▼
                                     One Combined, Scored, Sorted List!
 ```
-
-#### Knowledge Graph Fact Scoring Formula
-Graph facts are scored and ranked via `GraphFactScorer` (`rag/graph/fact_scorer.py`) using a 5-component composite metric:
-$$\text{graph\_score} = 0.40 \cdot \text{sim} + 0.25 \cdot \text{entity} + 0.15 \cdot \text{rel} + 0.10 \cdot \text{conf} + 0.10 \cdot \text{dist}$$
-- **Semantic Similarity (40%):** Local cosine similarity between query and standardized fact text (`all-MiniLM-L6-v2`, $0 API cost).
-- **Entity Match (25%):** Exact, normalized, and token overlap between query terms and source/target entities.
-- **Relationship Match (15%):** Intent token matching across relation types and edge descriptions.
-- **Extraction Confidence (10%):** Edge extraction confidence score $[0.0, 1.0]$.
-- **Hop Distance Penalty (10%):** Traversal distance decay penalty ($1 / \text{hop\_distance}$).
-
-#### Unified Multi-Way Reciprocal Rank Fusion (RRF)
-`HybridReranker` (`rag/reranker.py`) computes unified relevance across Dense, BM25, and Graph rankings:
-$$\text{RRF}(c) = \sum_{i \in \{\text{dense}, \text{bm25}, \text{graph}\}} \frac{w_i}{K_{\text{rrf}} + \text{rank}_i(c)}$$
-Chunks surfaced exclusively through multi-hop graph traversal are dynamically resolved from the vector store metadata, ensuring no evidence is lost.
-
 ---
 
 ## Required API Keys & Environment Variables
