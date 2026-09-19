@@ -3,13 +3,21 @@ rag/chain.py
 ────────────
 End-to-end RAG chain: embed → retrieve → rerank → generate.
 
+Supports 4 distinct retrieval modes:
+  1. "dense"        — Pure dense vector similarity search
+  2. "dense_bm25"   — Dense vector + BM25 sparse RRF fusion (vector_only)
+  3. "graph_only"   — Ranked Knowledge Graph facts & evidence chunks only
+  4. "hybrid"       — Unified 3-way RRF fusion combining Dense, BM25, and Graph
+
 Supports both Pinecone (production) and FAISS VectorDatabase (eval harness)
 via duck-typing — both expose .search() and .chunks_metadata.
 
-Two execution modes:
+Two execution interfaces:
   run()        — returns a complete dict (used by MergeAgent, eval harness, cache)
   run_stream() — yields (type, data) tuples for token-by-token streaming in UI
 """
+
+from __future__ import annotations
 
 import logging
 import re
@@ -45,7 +53,7 @@ class RAGChain:
     1. Query embedding
     2. Vector similarity retrieval (Pinecone or FAISS)
     3. Sparse/BM25 Hybrid Reranking via RRF
-    4. Knowledge Graph Multi-Hop Subgraph Traversal (Neo4j)
+    4. Knowledge Graph Multi-Hop Subgraph Traversal & Fact Scoring (Neo4j)
     5. Unified Grounded Prompt Formulation (Vectors + Triples)
     6. LLM Answer Generation (OpenRouter or Gemini)
     """
@@ -75,6 +83,177 @@ Rules:
         self.reranker = reranker or HybridReranker()
         self.graph_retriever = graph_retriever
 
+    # ─── Retrieval & Ranking Subsystem ────────────────────────────────────────
+
+    def retrieve_context(
+        self,
+        query: str,
+        query_vec,
+        initial_top_k: int = INITIAL_TOP_K,
+        rerank_top_k: int = RERANKED_TOP_K,
+        filter_filenames: Optional[List[str]] = None,
+        mode: str = "hybrid",
+        tracer: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executes mode-specific retrieval and ranking:
+          - "dense": Pure dense vector search sorted by cosine score.
+          - "dense_bm25" (or "vector_only"): Dense + BM25 sparse RRF fusion.
+          - "graph_only": Scored and ranked Knowledge Graph facts and evidence chunks.
+          - "hybrid": Unified 3-way RRF fusion combining Dense, BM25, and Graph.
+        """
+        norm_mode = mode.lower().strip() if mode else "hybrid"
+        if norm_mode in ("vector_only", "dense_only_bm25"):
+            norm_mode = "dense_bm25"
+
+        all_chunks = getattr(self.vector_db, "chunks_metadata", None) or []
+
+        dense_results: List[Tuple[Dict[str, Any], float]] = []
+        ranked_facts: List[Dict[str, Any]] = []
+        graph_facts_str: str = ""
+        graph_chunk_tuples: List[Tuple[str, float]] = []
+
+        # Step A: Vector Retrieval (skipped in graph_only mode)
+        if norm_mode != "graph_only":
+            retrieval_span = (
+                tracer.start_span("vector_retrieval", component="retrieval", inputs={"top_k": initial_top_k, "filters": filter_filenames, "mode": norm_mode})
+                if tracer else None
+            )
+            dense_results = self._retrieve(query_vec, initial_top_k, filter_filenames)
+            if tracer and retrieval_span:
+                tracer.finish_span(retrieval_span, outputs={"candidate_chunks_found": len(dense_results)})
+
+        # Step B: Graph Retrieval & Fact Scoring (skipped in dense and dense_bm25 modes)
+        if norm_mode in ("graph_only", "hybrid"):
+            if self.graph_retriever and getattr(self.graph_retriever, "is_available", lambda: False)():
+                graph_span = (
+                    tracer.start_span("graph_retrieval", component="graph", inputs={"query": query, "mode": norm_mode})
+                    if tracer else None
+                )
+                try:
+                    # Attempt retrieve_ranked_facts first
+                    if hasattr(self.graph_retriever, "retrieve_ranked_facts"):
+                        rf = self.graph_retriever.retrieve_ranked_facts(
+                            query=query,
+                            query_vec=query_vec,
+                            embedding_manager=self.embedding_manager,
+                        )
+                        if isinstance(rf, list):
+                            ranked_facts = rf
+                            fmt_res = self.graph_retriever.format_relational_facts(ranked_facts)
+                            if isinstance(fmt_res, tuple) and len(fmt_res) == 2:
+                                graph_facts_str, _ = fmt_res
+                            elif isinstance(fmt_res, str):
+                                graph_facts_str = fmt_res
+
+                    # Fall back to retrieve_facts if graph_facts_str is still empty
+                    if not graph_facts_str and hasattr(self.graph_retriever, "retrieve_facts"):
+                        rf_res = self.graph_retriever.retrieve_facts(query)
+                        if isinstance(rf_res, tuple) and len(rf_res) == 2:
+                            graph_facts_str, evidence_ids = rf_res
+                            if not graph_chunk_tuples and evidence_ids:
+                                graph_chunk_tuples = [(cid, 1.0) for cid in evidence_ids]
+                        elif isinstance(rf_res, str):
+                            graph_facts_str = rf_res
+
+                    if hasattr(self.graph_retriever, "get_ranked_evidence_chunks"):
+                        rec = self.graph_retriever.get_ranked_evidence_chunks(
+                            query=query,
+                            query_vec=query_vec,
+                            embedding_manager=self.embedding_manager,
+                        )
+                        if isinstance(rec, list):
+                            graph_chunk_tuples = rec
+
+                    if tracer and graph_span:
+                        tracer.finish_span(graph_span, outputs={"facts_count": len(ranked_facts), "graph_evidence_chunks": len(graph_chunk_tuples)})
+                except Exception as exc:
+                    if tracer and graph_span:
+                        tracer.finish_span(graph_span, outputs={"error": str(exc)})
+                    logger.warning(f"[RAGChain] Graph retrieval notice: {exc}")
+
+        # Step C: Ranking execution according to mode
+        top_chunks: List[Dict[str, Any]] = []
+        ranked_items: List[Dict[str, Any]] = []
+
+        if norm_mode == "dense":
+            # Pure dense ranking by cosine score
+            sorted_dense = sorted(dense_results, key=lambda x: x[1], reverse=True)[:rerank_top_k]
+            top_chunks = [c for c, s in sorted_dense]
+            ranked_items = [
+                {"chunk_id": c.get("chunk_id"), "score": round(float(s), 5), "rank": i + 1, "type": "dense"}
+                for i, (c, s) in enumerate(sorted_dense)
+            ]
+
+        elif norm_mode == "dense_bm25":
+            # 2-way RRF reranking (Dense + BM25)
+            rerank_span = (
+                tracer.start_span("hybrid_reranking", component="reranker", inputs={"initial_count": len(dense_results), "rerank_top_k": rerank_top_k})
+                if tracer else None
+            )
+            reranked_results = self.reranker.rerank(
+                query=query,
+                dense_results=dense_results,
+                top_k=rerank_top_k,
+                all_chunks=all_chunks,
+                weights={"dense": 1.0, "bm25": 1.0, "graph": 0.0},
+            )
+            top_chunks = [chunk for chunk, score in reranked_results]
+            ranked_items = [
+                {"chunk_id": c.get("chunk_id"), "score": round(float(s), 5), "rank": i + 1, "type": "dense_bm25"}
+                for i, (c, s) in enumerate(reranked_results)
+            ]
+            if tracer and rerank_span:
+                tracer.finish_span(rerank_span, outputs={"top_chunks_selected": len(top_chunks)})
+
+        elif norm_mode == "graph_only":
+            # Graph facts & evidence chunks only
+            reranked_results = self.reranker.rerank(
+                query=query,
+                dense_results=[],
+                top_k=rerank_top_k,
+                all_chunks=all_chunks,
+                graph_results=graph_chunk_tuples,
+                weights={"dense": 0.0, "bm25": 0.0, "graph": 1.0},
+            )
+            top_chunks = [chunk for chunk, score in reranked_results]
+            ranked_items = [
+                {"chunk_id": c.get("chunk_id"), "score": round(float(s), 5), "rank": i + 1, "type": "graph_only"}
+                for i, (c, s) in enumerate(reranked_results)
+            ]
+
+        else:  # "hybrid"
+            # Unified 3-way RRF fusion
+            rerank_span = (
+                tracer.start_span("unified_fusion", component="reranker", inputs={"dense_count": len(dense_results), "graph_count": len(graph_chunk_tuples), "rerank_top_k": rerank_top_k})
+                if tracer else None
+            )
+            reranked_results = self.reranker.rerank(
+                query=query,
+                dense_results=dense_results,
+                top_k=rerank_top_k,
+                all_chunks=all_chunks,
+                graph_results=graph_chunk_tuples,
+                weights={"dense": 1.0, "bm25": 1.0, "graph": 1.0},
+            )
+            top_chunks = [chunk for chunk, score in reranked_results]
+            ranked_items = [
+                {"chunk_id": c.get("chunk_id"), "score": round(float(s), 5), "rank": i + 1, "type": "hybrid"}
+                for i, (c, s) in enumerate(reranked_results)
+            ]
+            if tracer and rerank_span:
+                tracer.finish_span(rerank_span, outputs={"top_chunks_selected": len(top_chunks)})
+
+        return {
+            "mode": norm_mode,
+            "top_chunks": top_chunks,
+            "ranked_items": ranked_items,
+            "dense_results": dense_results,
+            "ranked_graph_facts": ranked_facts,
+            "graph_context": graph_facts_str,
+            "graph_evidence_chunks": [cid for cid, _ in graph_chunk_tuples],
+        }
+
     # ─── Full (non-streaming) run ─────────────────────────────────────────────
 
     def run(
@@ -85,9 +264,10 @@ Rules:
         filter_filenames: Optional[List[str]] = None,
         memory_context: Optional[str] = None,
         tracer: Optional[Any] = None,
+        mode: str = "hybrid",
     ) -> Dict[str, Any]:
         """
-        Executes the full RAG pipeline for a user query.
+        Executes the full RAG pipeline for a user query under the specified mode.
         """
         if not query or not query.strip():
             return self._empty_response(query, "Please provide a valid question.")
@@ -98,43 +278,27 @@ Rules:
         if tracer and embed_span:
             tracer.finish_span(embed_span, outputs={"vector_dim": len(query_vec)})
 
-        # Step 2: Retrieve from vector DB (Pinecone or FAISS)
-        retrieval_span = tracer.start_span("vector_retrieval", component="retrieval", inputs={"top_k": initial_top_k, "filters": filter_filenames}) if tracer else None
-        dense_results = self._retrieve(query_vec, initial_top_k, filter_filenames)
-        if tracer and retrieval_span:
-            tracer.finish_span(retrieval_span, outputs={"candidate_chunks_found": len(dense_results)})
+        # Step 2 & 3: Mode-specific retrieval and ranking
+        retrieval_data = self.retrieve_context(
+            query=query,
+            query_vec=query_vec,
+            initial_top_k=initial_top_k,
+            rerank_top_k=rerank_top_k,
+            filter_filenames=filter_filenames,
+            mode=mode,
+            tracer=tracer,
+        )
 
-        if not dense_results:
+        top_chunks = retrieval_data["top_chunks"]
+        graph_facts = retrieval_data["graph_context"]
+        dense_results = retrieval_data["dense_results"]
+        active_mode = retrieval_data["mode"]
+
+        if not top_chunks and not graph_facts:
             return self._empty_response(
                 query,
-                "No indexed document chunks found. Please upload and index documents first.",
+                "No matching document context or knowledge graph relationships found for this question.",
             )
-
-        # Step 3: Hybrid BM25+RRF reranking
-        rerank_span = tracer.start_span("hybrid_reranking", component="reranker", inputs={"initial_count": len(dense_results), "rerank_top_k": rerank_top_k}) if tracer else None
-        reranked_results = self.reranker.rerank(
-            query=query,
-            dense_results=dense_results,
-            top_k=rerank_top_k,
-            all_chunks=self.vector_db.chunks_metadata,
-        )
-        top_chunks = [chunk for chunk, score in reranked_results]
-        if tracer and rerank_span:
-            tracer.finish_span(rerank_span, outputs={"top_chunks_selected": len(top_chunks)})
-
-        # Step 3b: Knowledge Graph Subgraph Traversal
-        graph_facts = ""
-        graph_evidence_chunks = []
-        if self.graph_retriever and getattr(self.graph_retriever, "is_available", lambda: False)():
-            graph_span = tracer.start_span("graph_retrieval", component="graph", inputs={"query": query}) if tracer else None
-            try:
-                graph_facts, graph_evidence_chunks = self.graph_retriever.retrieve_facts(query)
-                if tracer and graph_span:
-                    tracer.finish_span(graph_span, outputs={"facts_retrieved": bool(graph_facts), "evidence_count": len(graph_evidence_chunks)})
-            except Exception as exc:
-                if tracer and graph_span:
-                    tracer.finish_span(graph_span, outputs={"error": str(exc)})
-                logger.warning(f"[RAGChain] Graph retrieval notice: {exc}")
 
         # Step 4: Build grounded prompt
         user_prompt, formatted_context = self._build_prompt(
@@ -142,10 +306,11 @@ Rules:
             top_chunks=top_chunks,
             memory_context=memory_context,
             graph_context=graph_facts,
+            mode=active_mode,
         )
 
         # Step 5: Generate answer
-        llm_span = tracer.start_span("llm_generation", component="llm", inputs={"task": "answer", "chunks_count": len(top_chunks)}) if tracer else None
+        llm_span = tracer.start_span("llm_generation", component="llm", inputs={"task": "answer", "chunks_count": len(top_chunks), "mode": active_mode}) if tracer else None
         answer = self._generate(user_prompt)
         if tracer and llm_span:
             tracer.finish_span(llm_span, outputs={"answer_length": len(answer)}, metadata={"model": getattr(self.llm, "last_model_used", "openrouter")})
@@ -159,9 +324,12 @@ Rules:
             "answer": answer,
             "retrieved_chunks": [c for c, s in dense_results],
             "reranked_chunks": top_chunks,
+            "ranked_items": retrieval_data["ranked_items"],
+            "ranked_graph_facts": retrieval_data["ranked_graph_facts"],
             "citations": citations,
             "formatted_context": formatted_context,
             "graph_context": graph_facts,
+            "mode_used": active_mode,
         }
 
     # ─── Streaming run ────────────────────────────────────────────────────────
@@ -174,6 +342,7 @@ Rules:
         filter_filenames: Optional[List[str]] = None,
         memory_context: Optional[str] = None,
         tracer: Optional[Any] = None,
+        mode: str = "hybrid",
     ) -> Generator[Tuple[str, Any], None, None]:
         """
         Streaming version of run(). Yields (event_type, data) tuples:
@@ -183,49 +352,35 @@ Rules:
         """
         if not query or not query.strip():
             yield ("token", "Please provide a valid question.")
-            yield ("done", {"query": query, "citations": [], "reranked_chunks": []})
+            yield ("done", {"query": query, "citations": [], "reranked_chunks": [], "mode_used": mode})
             return
 
-        # Retrieval phase
+        # Step 1: Embed query
         embed_span = tracer.start_span("embed_query", component="embedding", inputs={"query": query}) if tracer else None
         query_vec = self.embedding_manager.embed_query(query)
         if tracer and embed_span:
             tracer.finish_span(embed_span, outputs={"vector_dim": len(query_vec)})
 
-        retrieval_span = tracer.start_span("vector_retrieval", component="retrieval", inputs={"top_k": initial_top_k, "filters": filter_filenames}) if tracer else None
-        dense_results = self._retrieve(query_vec, initial_top_k, filter_filenames)
-        if tracer and retrieval_span:
-            tracer.finish_span(retrieval_span, outputs={"candidate_chunks_found": len(dense_results)})
-
-        if not dense_results:
-            yield ("token", "No indexed document chunks found. Please upload and index documents first.")
-            yield ("done", {"query": query, "citations": [], "reranked_chunks": []})
-            return
-
-        rerank_span = tracer.start_span("hybrid_reranking", component="reranker", inputs={"initial_count": len(dense_results), "rerank_top_k": rerank_top_k}) if tracer else None
-        reranked_results = self.reranker.rerank(
+        # Step 2 & 3: Mode-specific retrieval and ranking
+        retrieval_data = self.retrieve_context(
             query=query,
-            dense_results=dense_results,
-            top_k=rerank_top_k,
-            all_chunks=self.vector_db.chunks_metadata,
+            query_vec=query_vec,
+            initial_top_k=initial_top_k,
+            rerank_top_k=rerank_top_k,
+            filter_filenames=filter_filenames,
+            mode=mode,
+            tracer=tracer,
         )
-        top_chunks = [chunk for chunk, score in reranked_results]
-        if tracer and rerank_span:
-            tracer.finish_span(rerank_span, outputs={"top_chunks_selected": len(top_chunks)})
 
-        # Step 3b: Knowledge Graph Subgraph Traversal
-        graph_facts = ""
-        graph_evidence_chunks = []
-        if self.graph_retriever and getattr(self.graph_retriever, "is_available", lambda: False)():
-            graph_span = tracer.start_span("graph_retrieval", component="graph", inputs={"query": query}) if tracer else None
-            try:
-                graph_facts, graph_evidence_chunks = self.graph_retriever.retrieve_facts(query)
-                if tracer and graph_span:
-                    tracer.finish_span(graph_span, outputs={"facts_retrieved": bool(graph_facts), "evidence_count": len(graph_evidence_chunks)})
-            except Exception as exc:
-                if tracer and graph_span:
-                    tracer.finish_span(graph_span, outputs={"error": str(exc)})
-                logger.warning(f"[RAGChain] Graph retrieval notice: {exc}")
+        top_chunks = retrieval_data["top_chunks"]
+        graph_facts = retrieval_data["graph_context"]
+        dense_results = retrieval_data["dense_results"]
+        active_mode = retrieval_data["mode"]
+
+        if not top_chunks and not graph_facts:
+            yield ("token", "No matching document context or knowledge graph relationships found for this question.")
+            yield ("done", {"query": query, "citations": [], "reranked_chunks": [], "mode_used": active_mode})
+            return
 
         # Emit context immediately so UI can show retrieved chunks while LLM generates
         yield ("context", top_chunks)
@@ -235,14 +390,15 @@ Rules:
             top_chunks=top_chunks,
             memory_context=memory_context,
             graph_context=graph_facts,
+            mode=active_mode,
         )
         citations = self._extract_citations(top_chunks)
         if graph_facts and "[Knowledge Graph]" not in citations:
             citations.append("[Knowledge Graph]")
 
         # Stream tokens from LLM
-        llm_span = tracer.start_span("llm_stream", component="llm", inputs={"task": "answer", "chunks_count": len(top_chunks)}) if tracer else None
-        
+        llm_span = tracer.start_span("llm_stream", component="llm", inputs={"task": "answer", "chunks_count": len(top_chunks), "mode": active_mode}) if tracer else None
+
         token_count = 0
         if hasattr(self.llm, "generate_stream"):
             for token in self.llm.generate_stream(
@@ -272,8 +428,11 @@ Rules:
                 "citations": citations,
                 "reranked_chunks": top_chunks,
                 "retrieved_chunks": [c for c, s in dense_results],
+                "ranked_items": retrieval_data["ranked_items"],
+                "ranked_graph_facts": retrieval_data["ranked_graph_facts"],
                 "formatted_context": formatted_context,
                 "graph_context": graph_facts,
+                "mode_used": active_mode,
             },
         )
 
@@ -302,12 +461,13 @@ Rules:
         top_chunks: List[Dict],
         memory_context: Optional[str],
         graph_context: Optional[str] = None,
+        mode: str = "hybrid",
     ) -> Tuple[str, str]:
         """Constructs the grounded user prompt with optional conversation memory and knowledge graph context."""
         context_blocks = []
         for idx, chunk in enumerate(top_chunks):
-            citation_tag = f"Source: {chunk['filename']}, Page {chunk['page_number']}"
-            block = f"--- CONTEXT CHUNK #{idx+1} [{citation_tag}] ---\n{chunk['text']}\n"
+            citation_tag = f"Source: {chunk.get('filename', 'Doc')}, Page {chunk.get('page_number', 1)}"
+            block = f"--- CONTEXT CHUNK #{idx+1} [{citation_tag}] ---\n{chunk.get('text', '')}\n"
             context_blocks.append(block)
 
         formatted_context = "\n\n".join(context_blocks)
@@ -317,13 +477,17 @@ Rules:
             memory_section = f"CONVERSATION HISTORY & USER PREFERENCES:\n{memory_context.strip()}\n\n"
 
         graph_section = ""
-        if graph_context and graph_context.strip():
+        if graph_context and graph_context.strip() and mode in ("graph_only", "hybrid"):
             graph_section = f"KNOWLEDGE GRAPH CONTEXT (MULTI-HOP RELATIONS & GOVERNANCE):\n{graph_context.strip()}\n\n"
+
+        doc_context_section = ""
+        if formatted_context:
+            doc_context_section = f"DOCUMENT CONTEXT:\n{formatted_context}\n\n"
 
         prompt = (
             f"{memory_section}"
             f"{graph_section}"
-            f"DOCUMENT CONTEXT:\n{formatted_context}\n\n"
+            f"{doc_context_section}"
             f"QUESTION:\n{query}\n\n"
             f"ANSWER (strictly grounded in the document and knowledge graph context above, quoting exact figures and citing sources):"
         )
@@ -345,10 +509,13 @@ Rules:
         seen = set()
         citations = []
         for chunk in chunks:
-            tag = f"{chunk['filename']} (p. {chunk['page_number']})"
-            if tag not in seen:
-                seen.add(tag)
-                citations.append(tag)
+            fn = chunk.get("filename")
+            pg = chunk.get("page_number", 1)
+            if fn and fn != "knowledge_graph":
+                tag = f"{fn} (p. {pg})"
+                if tag not in seen:
+                    seen.add(tag)
+                    citations.append(tag)
         return citations
 
     def _empty_response(self, query: str, message: str) -> Dict[str, Any]:
@@ -357,6 +524,10 @@ Rules:
             "answer": message,
             "retrieved_chunks": [],
             "reranked_chunks": [],
+            "ranked_items": [],
+            "ranked_graph_facts": [],
             "citations": [],
             "formatted_context": "",
+            "graph_context": "",
+            "mode_used": "none",
         }
